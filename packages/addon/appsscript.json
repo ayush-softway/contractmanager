@@ -1,0 +1,38 @@
+{
+  "timeZone": "America/Los_Angeles",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/documents.currentonly",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/userinfo.email"
+  ],
+  "addOns": {
+    "common": {
+      "name": "Contract Generator",
+      "logoUrl": "https://example.com/icon.png",
+      "useLocaleFromApp": true,
+      "homepageTrigger": {
+        "runFunction": "onHomepage",
+        "enabled": true
+      },
+      "universalActions": [
+        {
+          "label": "Open Contract Generator web app",
+          "openLink": "https://your-app-domain.example.com"
+        }
+      ]
+    },
+    "docs": {
+      "homepageTrigger": {
+        "runFunction": "onDocsHomepage",
+        "enabled": true
+      },
+      "onFileScopeGrantedTrigger": {
+        "runFunction": "onFileScopeGranted"
+      }
+    }
+  },
+  "httpOptions": {
+    "url": "https://YOUR_NGROK_OR_PROD_URL/webhook",
+    "authorizationHeader": "Bearer GOOGLE_ID_TOKEN"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "contract-generator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contract generation platform built on Google Docs + Drive with AI editing",
+  "workspaces": [
+    "packages/shared",
+    "packages/backend",
+    "packages/web",
+    "packages/addon"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,web -c blue,magenta \"npm:dev --workspace=@cg/backend\" \"npm:dev --workspace=@cg/web\"",
+    "dev:backend": "npm run dev --workspace=@cg/backend",
+    "dev:web": "npm run dev --workspace=@cg/web",
+    "dev:addon": "npm run dev --workspace=@cg/addon",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "typescript": "^5.4.5"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
