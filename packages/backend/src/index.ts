@@ -1,3 +1,5 @@
+// Softway ContractGen V2 — Backend Entry Point
+
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -6,11 +8,7 @@ import { config } from './config.js';
 import './db/client.js'; // initializes the DB on import
 import { sessionMiddleware } from './auth/session.js';
 import { authRouter } from './routes/auth.js';
-import { templatesRouter } from './routes/templates.js';
 import { contractsRouter } from './routes/contracts.js';
-import { aiRouter } from './routes/ai.js';
-import { hubspotRouter } from './routes/hubspot.js';
-import { driveImportRouter } from './routes/driveImport.js';
 import { importDetectRouter } from './routes/importDetect.js';
 
 const app = express();
@@ -26,18 +24,14 @@ app.use(express.json({ limit: '2mb' }));
 app.use(sessionMiddleware);
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'contract-generator-backend' });
+  res.json({ ok: true, service: 'contractgen-v2' });
 });
 
 app.use('/auth', authRouter);
-app.use('/templates', templatesRouter);
 app.use('/contracts', contractsRouter);
-app.use('/ai', aiRouter);
-app.use('/hubspot', hubspotRouter);
-app.use('/drive-import', driveImportRouter);
 app.use('/import/detect', importDetectRouter);
 
-// Global error handler. Keeps Zod errors readable; masks the rest.
+// Global error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (err instanceof ZodError) {
@@ -53,7 +47,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 app.listen(config.PORT, () => {
-  console.log(`✔ backend listening on http://localhost:${config.PORT}`);
+  console.log(`✔ ContractGen V2 listening on http://localhost:${config.PORT}`);
   console.log(`  CORS origin: ${config.WEB_ORIGIN}`);
   console.log(`  DB: ${config.DATABASE_URL}`);
 });

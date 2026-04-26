@@ -1,232 +1,181 @@
 'use client';
+
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
+import StepIndicator from '@/components/StepIndicator';
+import ContractTypeSelector from '@/components/ContractTypeSelector';
+import AddSourceBar from '@/components/AddSourceBar';
+import SmartField from '@/components/SmartField';
+import type { ContractType, ImportSource } from '@cg/shared';
+
+const ALL_FIELDS = [
+  { id: 'client_legal_name', label: 'Client Legal Name', type: 'text' as const },
+  { id: 'client_address', label: 'Client Address', type: 'text' as const },
+  { id: 'client_contact_name', label: 'Client Contact Name', type: 'text' as const },
+  { id: 'client_contact_email', label: 'Client Contact Email', type: 'email' as const },
+  { id: 'softway_rep', label: 'Softway Rep', type: 'text' as const },
+  { id: 'sow_number', label: 'SOW Number', type: 'text' as const },
+  { id: 'contract_date', label: 'Contract Date', type: 'date' as const },
+  { id: 'project_fee_usd', label: 'Total Value (USD)', type: 'number' as const },
+  { id: 'service_type', label: 'Service Type / Scope', type: 'text' as const },
+  { id: 'workshop_count', label: 'Workshop Count', type: 'number' as const },
+  { id: 'duration_hrs', label: 'Duration (hrs)', type: 'number' as const },
+  { id: 'attendee_count', label: 'Attendee Count', type: 'number' as const },
+  { id: 'facilitator_count', label: 'Facilitator Count', type: 'number' as const },
+  { id: 'location', label: 'Location', type: 'text' as const },
+  { id: 'completion_date', label: 'Completion Date', type: 'date' as const },
+  { id: 'event_dates', label: 'Event Dates', type: 'text' as const },
+  { id: 'payment_structure', label: 'Payment Structure', type: 'select' as const },
+  { id: 'discount_type', label: 'Discount Type', type: 'select' as const },
+  { id: 'discount_amount', label: 'Discount Amount', type: 'number' as const },
+  { id: 'travel_required', label: 'Travel Required', type: 'toggle' as const },
+  { id: 'travel_cap', label: 'Travel Cap (USD)', type: 'number' as const, conditional: 'travel_required' },
+  { id: 'msa_date', label: 'Prior MSA Date', type: 'date' as const, conditional: '_show_msa_date' },
+];
+
+const REQUIRED_FIELDS: Record<ContractType, string[]> = {
+  'msa-sow': ['client_legal_name', 'client_address', 'client_contact_name', 'client_contact_email', 'softway_rep', 'project_fee_usd', 'completion_date', 'service_type'],
+  'sow-standalone': ['client_legal_name', 'msa_date', 'softway_rep', 'project_fee_usd', 'completion_date', 'service_type'],
+  'change-order': ['client_legal_name', 'sow_number', 'completion_date', 'project_fee_usd'],
+};
 
 export default function GenerateContractPage() {
   const router = useRouter();
-  const [contractType, setContractType] = useState('msa-sow');
-  
-  const [importInput, setImportInput] = useState('');
-  const [sourceChips, setSourceChips] = useState<{ id: string, label: string, type: string }[]>([]);
-  
-  const [fields, setFields] = useState<Record<string, string>>({});
-  const [source, setSource] = useState<Record<string, 'hubspot' | 'drive' | 'text' | 'manual'>>({});
-  
+  const [contractType, setContractType] = useState<ContractType>('msa-sow');
+  const [fields, setFields] = useState<Record<string, string>>({
+    contract_date: new Date().toLocaleDateString('en-US'),
+  });
+  const [fieldSources, setFieldSources] = useState<Record<string, ImportSource | 'auto' | 'manual'>>({
+    contract_date: 'auto',
+  });
+  const [sourceChips, setSourceChips] = useState<{ id: string; label: string; type: string }[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
-  const [showErrors, setShowErrors] = useState(false);
-  
-  const [starters, setStarters] = useState<any[]>([]);
+  const [showValidation, setShowValidation] = useState(false);
+  const firstErrorRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    api.listStarters().then(res => setStarters(res.starters));
-  }, []);
+  // Conditional field visibility
+  const showTravelCap = fields.travel_required === 'yes';
+  const showMsaDate = contractType === 'sow-standalone' || fields._prior_msa === 'yes';
 
-  const handleImportDetect = async () => {
-    if (!importInput.trim()) return;
-    setImporting(true);
-    setError('');
-    try {
-      const res = await api.importDetect(importInput);
-      
-      const newSources: any = {};
-      Object.keys(res.fields).forEach(k => {
-        if (res.fields[k]) newSources[k] = res.source;
-      });
-      
-      setFields(prev => ({ ...prev, ...res.fields }));
-      setSource(prev => ({ ...prev, ...newSources }));
-      
-      setSourceChips(prev => [
-        ...prev, 
-        { id: Date.now().toString(), label: res.label, type: res.source }
-      ]);
-      setImportInput('');
-    } catch (err: any) {
-      setError('Import failed: ' + err.message);
-    } finally {
-      setImporting(false);
-    }
+  const visibleFields = ALL_FIELDS.filter(f => {
+    if (f.conditional === 'travel_required' && !showTravelCap) return false;
+    if (f.conditional === '_show_msa_date' && !showMsaDate) return false;
+    return true;
+  });
+
+  const requiredForType = REQUIRED_FIELDS[contractType] ?? [];
+
+  const handleSourceImported = (imported: {
+    fields: Record<string, string>;
+    source: string;
+    label: string;
+  }) => {
+    const newSources: Record<string, ImportSource> = {};
+    Object.keys(imported.fields).forEach(k => {
+      if (imported.fields[k]) newSources[k] = imported.source as ImportSource;
+    });
+    setFields(prev => ({ ...prev, ...imported.fields }));
+    setFieldSources(prev => ({ ...prev, ...newSources }));
+    setSourceChips(prev => [
+      ...prev,
+      { id: Date.now().toString(), label: imported.label, type: imported.source },
+    ]);
   };
 
-  const removeChip = (id: string) => {
-    setSourceChips(prev => prev.filter(c => c.id !== id));
+  const handleFieldChange = (id: string, value: string) => {
+    setFields(prev => ({ ...prev, [id]: value }));
+    setFieldSources(prev => ({ ...prev, [id]: 'manual' }));
   };
 
   const handleGenerate = async () => {
-    setShowErrors(true);
-    
-    // 1. check for empty fields
-    const required = ['client_legal_name', 'client_address', 'project_fee_usd', 'project_short_description'];
-    const missing = required.filter(k => !fields[k]);
+    setShowValidation(true);
+    setError('');
+
+    const missing = requiredForType.filter(k => !fields[k]);
     if (missing.length > 0) {
-      setError(`Missing required fields: ${missing.join(', ')}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setError(`Missing required fields: ${missing.map(k => ALL_FIELDS.find(f => f.id === k)?.label || k).join(', ')}`);
+      // Scroll to first error
+      setTimeout(() => {
+        const el = document.querySelector('[data-unfilled="true"]');
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 100);
       return;
     }
 
     setLoading(true);
     try {
-      const imported = await api.importStarter(contractType);
-      const contract = await api.generateContract({
-        templateId: imported.template.id,
-        title: `Contract for ${fields.client_legal_name || 'Client'}`,
-        variableValues: fields,
-      });
-      router.push(`/contracts/${contract.contract.id}/review`);
+      const result = await api.generateContract({ contractType, fields });
+      router.push(`/contracts/${result.contractId}/review`);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Contract generation failed.');
     } finally {
       setLoading(false);
     }
   };
 
-  const getTypeDescription = (slug: string) => {
-    if (slug === 'msa-sow') return 'New client — full legal package attached';
-    if (slug === 'sow-standalone') return 'Repeat client with existing MSA on file';
-    if (slug === 'change-order') return 'Scope or pricing update to an existing SOW';
-    return '';
-  };
-
   return (
-    <div className="max-w-4xl mx-auto p-8">
-      {/* 3-Step Progress Indicator */}
-      <div className="flex items-center justify-center gap-4 text-sm font-semibold text-gray-500 mb-12">
-        <div className="flex items-center gap-2">
-          <span className="bg-teal-600 text-white w-6 h-6 rounded-full flex items-center justify-center">1</span>
-          <span className="text-teal-800">Contract Type</span>
-        </div>
-        <span>→</span>
-        <div className="flex items-center gap-2">
-          <span className="bg-teal-600 text-white w-6 h-6 rounded-full flex items-center justify-center">2</span>
-          <span className="text-teal-800">Fill Details</span>
-        </div>
-        <span>→</span>
-        <div className="flex items-center gap-2">
-          <span className="bg-gray-200 text-gray-600 w-6 h-6 rounded-full flex items-center justify-center">3</span>
-          <span>Review & Send</span>
-        </div>
-      </div>
+    <div className="max-w-4xl mx-auto py-8 px-4">
+      <StepIndicator currentStep={2} />
 
-      <h1 className="text-3xl font-bold mb-8">Generate Contract</h1>
-      
-      {error && <div className="bg-red-100 text-red-700 p-4 mb-4 rounded">{error}</div>}
+      <h1 className="text-3xl font-bold text-slate-900 mb-8">Generate Contract</h1>
 
-      {/* Contract Type Selector (Moved to Top) */}
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Contract Type</h2>
-        <div className="grid gap-4">
-          {starters.map(s => (
-            <div 
-              key={s.slug}
-              onClick={() => setContractType(s.slug)}
-              className={`p-4 border rounded-lg cursor-pointer transition-colors ${contractType === s.slug ? 'border-teal-600 bg-teal-50' : 'border-gray-200 hover:border-gray-300'}`}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-gray-900">{s.name}</h3>
-                  <p className="text-sm text-gray-600">{getTypeDescription(s.slug) || s.description}</p>
-                </div>
-                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${contractType === s.slug ? 'border-teal-600' : 'border-gray-300'}`}>
-                  {contractType === s.slug && <div className="w-2.5 h-2.5 bg-teal-600 rounded-full" />}
-                </div>
-              </div>
-            </div>
-          ))}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
+          {error}
         </div>
-      </div>
+      )}
 
-      {/* Unified Import Bar */}
-      <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm mb-8">
-        <h2 className="text-xl font-semibold mb-2">Add Source</h2>
-        <p className="text-sm text-gray-500 mb-4">Paste a HubSpot deal URL, Google Drive doc link, or raw meeting notes</p>
-        <div className="flex flex-col gap-2">
-          <textarea 
-            placeholder="Paste anything — HubSpot URL, Drive link, or text..." 
-            className="w-full p-3 border rounded-md min-h-[80px]"
-            value={importInput} 
-            onChange={e => setImportInput(e.target.value)} 
-          />
-          <button 
-            onClick={handleImportDetect} 
-            disabled={importing || !importInput.trim()}
-            className="bg-teal-600 text-white font-semibold px-4 py-2 rounded-md self-end disabled:bg-gray-300 transition-colors"
-          >
-            {importing ? 'Importing...' : 'Add Source'}
-          </button>
-        </div>
-        
-        {/* Source Chips */}
-        {sourceChips.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4">
-            {sourceChips.map(chip => (
-              <div key={chip.id} className="flex items-center gap-2 px-3 py-1 bg-gray-100 border border-gray-200 rounded-full text-sm">
-                <span>✅ {chip.type === 'hubspot' ? 'HubSpot' : chip.type === 'drive' ? 'Drive' : 'Text'} — {chip.label}</span>
-                <button onClick={() => removeChip(chip.id)} className="text-gray-400 hover:text-gray-600 font-bold">&times;</button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Step 1: Contract Type */}
+      <ContractTypeSelector value={contractType} onChange={setContractType} />
 
-      <div className="bg-white shadow-sm p-6 rounded-lg border border-gray-200 mb-8">
-        <h2 className="text-xl font-semibold mb-6">Contract Details</h2>
-        <div className="grid grid-cols-2 gap-6">
-          {[
-            { id: 'client_legal_name', label: 'Client Legal Name' },
-            { id: 'client_address', label: 'Client Address' },
-            { id: 'client_contact_name', label: 'Client Contact Name' },
-            { id: 'client_contact_email', label: 'Client Contact Email' },
-            { id: 'softway_contact_name', label: 'Softway Rep' },
-            { id: 'sow_number', label: 'SOW Number' },
-            { id: 'msa_effective_date', label: 'MSA Date' },
-            { id: 'effective_date', label: 'Contract Date' },
-            { id: 'project_end_date', label: 'Completion Date' },
-            { id: 'project_short_description', label: 'Service Type / Scope' },
-            { id: 'project_fee_usd', label: 'Total Value (USD)' },
-          ].map(field => {
-            const isUnfilled = !fields[field.id];
-            const badgeVisible = showErrors && isUnfilled;
+      {/* Step 1b: Add Source */}
+      <AddSourceBar
+        chips={sourceChips}
+        onImported={handleSourceImported}
+        onRemoveChip={(id) => setSourceChips(prev => prev.filter(c => c.id !== id))}
+        onError={(msg) => setError(msg)}
+      />
+
+      {/* Step 2: Contract Details */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-8">
+        <h2 className="text-lg font-semibold text-slate-900 mb-6">Contract Details</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {visibleFields.map(field => {
+            const isRequired = requiredForType.includes(field.id);
+            const isUnfilled = isRequired && !fields[field.id] && showValidation;
             return (
-              <div key={field.id} className="flex flex-col">
-                <label className="text-sm font-semibold text-gray-700 mb-2 flex items-center">
-                  {field.label}
-                  {source[field.id] && !isUnfilled && (
-                    <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold ${
-                      source[field.id] === 'hubspot' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
-                    }`}>
-                      {source[field.id]} ✓
-                    </span>
-                  )}
-                  {badgeVisible && (
-                    <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-800 uppercase tracking-wider font-bold">
-                      UNFILLED
-                    </span>
-                  )}
-                </label>
-                <input 
-                  type="text" 
-                  className={`p-2 border rounded-md transition-colors ${isUnfilled ? 'bg-yellow-50/50 border-yellow-200 focus:border-yellow-400 focus:ring-1 focus:ring-yellow-400' : 'border-gray-300 focus:border-teal-500 focus:ring-1 focus:ring-teal-500'}`}
-                  value={fields[field.id] || ''}
-                  onChange={e => {
-                    setFields(prev => ({ ...prev, [field.id]: e.target.value }));
-                    setSource(prev => ({ ...prev, [field.id]: 'manual' }));
-                  }}
-                />
-              </div>
+              <SmartField
+                key={field.id}
+                id={field.id}
+                label={field.label}
+                type={field.type}
+                value={fields[field.id] || ''}
+                source={fieldSources[field.id]}
+                required={isRequired}
+                unfilled={isUnfilled}
+                onChange={(val) => handleFieldChange(field.id, val)}
+              />
             );
           })}
         </div>
       </div>
 
-      <button 
+      {/* Generate Button */}
+      <button
         onClick={handleGenerate}
         disabled={loading}
-        className="w-full bg-teal-600 text-white py-4 rounded-lg font-bold text-lg hover:bg-teal-700 disabled:bg-gray-400 transition-colors"
+        className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-sm"
       >
-        {loading ? 'Generating...' : 'Generate Contract'}
+        {loading ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            Generating...
+          </span>
+        ) : (
+          'Generate Contract →'
+        )}
       </button>
     </div>
   );

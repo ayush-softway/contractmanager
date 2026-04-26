@@ -1,125 +1,133 @@
-import { nanoid } from 'nanoid';
-import type { Contract, ContractStatus, GenerateContractInput } from '@cg/shared';
-import { db } from '../db/client.js';
-import { copyTemplateToContract } from '../google/drive.js';
-import { replaceVariables } from '../google/docs.js';
-import { getTemplate } from './templates.js';
-import { deleteContractDraft, getContractDraft } from './contractDrafts.js';
+// Softway ContractGen V2 — Contracts Service
+//
+// Core generation flow: validate fields → copy locked template →
+// fill variables → save contract record.
 
-interface ContractRow {
-  id: string;
-  template_id: string;
-  title: string;
-  drive_file_id: string;
-  status: ContractStatus;
-  variable_values_json: string;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
+import crypto from 'node:crypto';
+import { db } from '../db/client.js';
+import { driveFor } from '../google/clients.js';
+import { getStarter, getStarterFilePath } from './starters.js';
+import type { ContractType } from '@cg/shared';
+import fs from 'node:fs';
+
+// Required fields per contract type
+const REQUIRED_FIELDS: Record<ContractType, string[]> = {
+  'msa-sow': [
+    'client_legal_name', 'client_address', 'client_contact_name',
+    'client_contact_email', 'softway_rep', 'project_fee_usd',
+    'completion_date', 'service_type',
+  ],
+  'sow-standalone': [
+    'client_legal_name', 'msa_date', 'softway_rep',
+    'project_fee_usd', 'completion_date', 'service_type',
+  ],
+  'change-order': [
+    'client_legal_name', 'sow_number', 'completion_date',
+    'project_fee_usd',
+  ],
+};
+
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ValidationError';
+  }
 }
 
-function rowToContract(r: ContractRow): Contract {
+export async function generateContractV2(
+  userId: string,
+  contractType: ContractType,
+  fields: Record<string, string>,
+): Promise<{ contractId: string; driveFileId: string; previewUrl: string }> {
+
+  // 1. Validate — block if any required field is empty
+  const required = REQUIRED_FIELDS[contractType] ?? [];
+  const missing = required.filter(f => !fields[f]);
+  if (missing.length > 0) {
+    throw new ValidationError(`Missing required fields: ${missing.join(', ')}`);
+  }
+
+  // 2. Get the correct locked template for this contract type
+  const starter = getStarter(contractType);
+  if (!starter) {
+    throw new Error(`Unknown contract type: ${contractType}`);
+  }
+
+  // 3. Upload the .docx template to Google Drive as a new Google Doc
+  const drive = driveFor(userId);
+  const templatePath = getStarterFilePath(starter);
+  const fileBuffer = fs.readFileSync(templatePath);
+
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+      mimeType: 'application/vnd.google-apps.document',
+    },
+    media: {
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      body: fs.createReadStream(templatePath),
+    },
+    fields: 'id',
+  });
+
+  const driveFileId = createRes.data.id!;
+
+  // 4. Replace {{variables}} in the Google Doc
+  const { google } = await import('googleapis');
+  const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
+
+  const requests = Object.entries(fields)
+    .filter(([_, value]) => value)
+    .map(([key, value]) => ({
+      replaceAllText: {
+        containsText: { text: `{{${key}}}`, matchCase: false },
+        replaceText: value,
+      },
+    }));
+
+  if (requests.length > 0) {
+    await docs.documents.batchUpdate({
+      documentId: driveFileId,
+      requestBody: { requests },
+    });
+  }
+
+  // 5. Save contract record to DB
+  const contractId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id, field_values_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'generated', ?, ?, datetime('now'), datetime('now'))
+  `).run(
+    contractId,
+    userId,
+    `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+    contractType,
+    driveFileId,
+    JSON.stringify(fields),
+  );
+
   return {
-    id: r.id,
-    templateId: r.template_id,
-    title: r.title,
-    driveFileId: r.drive_file_id,
-    status: r.status,
-    variableValues: JSON.parse(r.variable_values_json) as Record<string, string>,
-    createdBy: r.created_by,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    contractId,
+    driveFileId,
+    previewUrl: `https://docs.google.com/document/d/${driveFileId}/preview`,
   };
 }
 
-/**
- * Generate a new contract from a template:
- * 1. Copy the template doc in Drive.
- * 2. Replace all `{{var}}` placeholders in one batch update.
- * 3. Write a row in `contracts`.
- */
-export async function generateContract(
-  userId: string,
-  input: GenerateContractInput,
-): Promise<Contract> {
-  const template = getTemplate(userId, input.templateId);
-  if (!template) throw new Error('Template not found');
-  if (!template.driveFileId) {
-    throw new Error(
-      'This template does not have a Google Doc yet. Open it in Docs first, then generate.',
-    );
+export function getContract(contractId: string) {
+  return db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as any | undefined;
+}
+
+export function listContracts(userId: string) {
+  return db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
+}
+
+export function updateContractStatus(contractId: string, status: string, extra: Record<string, string> = {}) {
+  const sets = ['status = ?', 'updated_at = datetime(\'now\')'];
+  const values: any[] = [status];
+  for (const [key, value] of Object.entries(extra)) {
+    sets.push(`${key} = ?`);
+    values.push(value);
   }
-
-  const { driveFileId } = await copyTemplateToContract(
-    userId,
-    template.driveFileId,
-    input.title,
-  );
-
-  try {
-    await replaceVariables(userId, driveFileId, input.variableValues);
-  } catch (err) {
-    // If variable replacement fails, the copy is orphaned. In production
-    // we'd enqueue a cleanup job; for now we log and let the user retry.
-    console.error('Variable replacement failed; contract file may have stale placeholders', err);
-    throw err;
-  }
-
-  const id = nanoid();
-  db.prepare(
-    `INSERT INTO contracts (id, template_id, title, drive_file_id, variable_values_json, created_by)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    input.templateId,
-    input.title,
-    driveFileId,
-    JSON.stringify(input.variableValues),
-    userId,
-  );
-  const row = db.prepare('SELECT * FROM contracts WHERE id = ?').get(id) as ContractRow;
-  return rowToContract(row);
-}
-
-export function listContracts(userId: string): Contract[] {
-  const rows = db
-    .prepare('SELECT * FROM contracts WHERE created_by = ? ORDER BY updated_at DESC')
-    .all(userId) as ContractRow[];
-  return rows.map(rowToContract);
-}
-
-export function getContract(userId: string, id: string): Contract | null {
-  const row = db
-    .prepare('SELECT * FROM contracts WHERE id = ? AND created_by = ?')
-    .get(id, userId) as ContractRow | undefined;
-  return row ? rowToContract(row) : null;
-}
-
-/**
- * Turn a draft into a real contract: runs the usual generation flow, then
- * removes the draft row. If generation fails the draft is preserved so the
- * user can retry.
- */
-export async function finalizeContractDraft(userId: string, draftId: string): Promise<Contract> {
-  const draft = getContractDraft(userId, draftId);
-  if (!draft) throw new Error('Draft not found');
-  const contract = await generateContract(userId, {
-    templateId: draft.templateId,
-    title: draft.title,
-    variableValues: draft.variableValues,
-  });
-  deleteContractDraft(userId, draftId);
-  return contract;
-}
-
-export function updateContractStatus(
-  userId: string,
-  id: string,
-  status: ContractStatus,
-): Contract | null {
-  db.prepare(
-    `UPDATE contracts SET status = ?, updated_at = datetime('now')
-     WHERE id = ? AND created_by = ?`,
-  ).run(status, id, userId);
-  return getContract(userId, id);
+  values.push(contractId);
+  db.prepare(`UPDATE contracts SET ${sets.join(', ')} WHERE id = ?`).run(...values);
 }

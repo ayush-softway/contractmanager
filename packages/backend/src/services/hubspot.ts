@@ -1,14 +1,24 @@
-export async function getHubSpotDeal(dealId: string) {
-  if (dealId === 'mock-pumpworks' || dealId === '123') {
-    return {
-      dealId: '123',
-      client_legal_name: 'PumpWorks, LLC',
-      client_address: '1000 Energy Way, Houston, TX 77002',
-      client_contact_name: 'Sarah Jenkins',
-      client_contact_email: 'sjenkins@pumpworks.com',
-      softway_contact_name: 'Alex Rivera',
-      project_fee_usd: '$85,000',
-    };
-  }
-  throw new Error('Deal not found');
+// Softway ContractGen V2 — HubSpot Mock Service
+//
+// V2 PROTOTYPE MOCK — returns hardcoded PumpWorks deal data.
+// Replace with real HubSpot Private App API call post-demo.
+
+import type { ImportResult } from '@cg/shared';
+
+export async function importFromHubSpot(dealId: string): Promise<ImportResult> {
+  // For the demo, any dealId returns PumpWorks data
+  return {
+    fields: {
+      client_legal_name: 'DXP Enterprises, Inc. dba PumpWorks',
+      client_address: '1234 Industrial Blvd, Houston, TX 77001',
+      client_contact_name: 'John Smith',
+      client_contact_email: 'jsmith@pumpworks.com',
+      softway_rep: 'Ashley Rodriguez',
+      project_fee_usd: '150000',
+      sow_number: 'SOW-2026-PW-01',
+      contract_date: new Date().toLocaleDateString('en-US'),
+    },
+    source: 'hubspot',
+    label: 'PumpWorks 2026 Culture Solution',
+  };
 }
