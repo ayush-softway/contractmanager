@@ -9,6 +9,9 @@ import { authRouter } from './routes/auth.js';
 import { templatesRouter } from './routes/templates.js';
 import { contractsRouter } from './routes/contracts.js';
 import { aiRouter } from './routes/ai.js';
+import { hubspotRouter } from './routes/hubspot.js';
+import { driveImportRouter } from './routes/driveImport.js';
+import { importDetectRouter } from './routes/importDetect.js';
 
 const app = express();
 
@@ -30,6 +33,9 @@ app.use('/auth', authRouter);
 app.use('/templates', templatesRouter);
 app.use('/contracts', contractsRouter);
 app.use('/ai', aiRouter);
+app.use('/hubspot', hubspotRouter);
+app.use('/drive-import', driveImportRouter);
+app.use('/import/detect', importDetectRouter);
 
 // Global error handler. Keeps Zod errors readable; masks the rest.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

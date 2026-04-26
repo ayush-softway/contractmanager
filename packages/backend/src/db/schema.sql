@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS contracts (
   drive_file_id TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'draft',
   variable_values_json TEXT NOT NULL DEFAULT '{}',
+  docusign_envelope_id TEXT,
+  pdf_drive_file_id TEXT,
+  contract_type TEXT,
+  import_source_json TEXT,
   created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))

@@ -119,6 +119,10 @@ export interface Contract {
   status: ContractStatus;
   /** The values used when generating this contract from its template. */
   variableValues: Record<string, string>;
+  docusignEnvelopeId?: string;
+  pdfDriveFileId?: string;
+  contractType?: 'msa-sow' | 'sow-standalone' | 'change-order';
+  importSource?: { hubspotDealId?: string; driveDocId?: string; importedAt?: string };
   createdBy: string;
   createdAt: ISODateString;
   updatedAt: ISODateString;

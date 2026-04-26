@@ -60,7 +60,7 @@ export default function HomePage() {
           </p>
         </Link>
         <Link
-          href="/contracts"
+          href="/contracts/generate"
           className="block rounded-lg border border-slate-200 bg-white p-6 hover:border-brand hover:shadow-sm"
         >
           <h2 className="font-medium">Contracts</h2>

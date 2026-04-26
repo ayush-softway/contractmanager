@@ -121,4 +121,22 @@ export const api = {
 
   aiEdit: (body: AIEditRequest) =>
     req<AIEditResponse>('/ai/edit', { method: 'POST', body: JSON.stringify(body) }),
+
+  // ---- Prototype / ContractGen v2 APIs ----
+  getHubSpotDeal: (dealId: string) => req<any>(`/hubspot/deal/${dealId}`),
+  extractDriveFields: (text: string) => 
+    req<Record<string, string>>('/drive-import', { 
+      method: 'POST', 
+      body: JSON.stringify({ text }) 
+    }),
+  importDetect: (input: string) => 
+    req<{ fields: Record<string, string>; source: 'hubspot' | 'drive' | 'text'; label: string }>('/import/detect', { 
+      method: 'POST', 
+      body: JSON.stringify({ input }) 
+    }),
+  sendForSignature: (contractId: string, body: { signerEmail: string; signerName: string }) =>
+    req<{ contract: Contract; envelope: any }>(`/contracts/${contractId}/send-for-signature`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };

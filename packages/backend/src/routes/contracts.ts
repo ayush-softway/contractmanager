@@ -15,6 +15,8 @@ import {
   listContractDrafts,
   updateContractDraft,
 } from '../services/contractDrafts.js';
+import { exportAsPdf } from '../google/drive.js';
+import { createDocusignEnvelope } from '../services/docusign.js';
 
 export const contractsRouter: Router = Router();
 
@@ -130,6 +132,30 @@ contractsRouter.patch('/:id/status', requireAuth, (req, res, next) => {
     const contract = updateContractStatus(userId, String(req.params.id), body.status);
     if (!contract) return res.status(404).json({ error: 'not_found' });
     res.json({ contract });
+  } catch (err) {
+    next(err);
+  }
+});
+
+contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as unknown as { userId: string }).userId;
+    const contractId = String(req.params.id);
+    const contract = getContract(userId, contractId);
+    if (!contract) return res.status(404).json({ error: 'not_found' });
+    
+    const { signerEmail, signerName } = req.body;
+    
+    // 1. Export as PDF
+    const pdfBuffer = await exportAsPdf(userId, contract.driveFileId);
+    
+    // 2. Send via DocuSign mock
+    const envelope = await createDocusignEnvelope(contractId, pdfBuffer, signerEmail, signerName);
+    
+    // 3. Update contract
+    const updatedContract = updateContractStatus(userId, contractId, 'sent_for_signature');
+    
+    res.json({ contract: updatedContract, envelope });
   } catch (err) {
     next(err);
   }

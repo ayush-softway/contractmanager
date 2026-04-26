@@ -31,18 +31,28 @@ export interface Starter {
 
 export const STARTERS: Starter[] = [
   {
-    slug: 'msa',
-    name: 'Master Services Agreement',
-    description:
-      'Boilerplate MSA covering confidentiality, IP, liability cap, governing law, and termination. Signed once per client, then governs every SOW.',
-    filename: 'msa.docx',
+    slug: 'msa-sow',
+    name: 'MSA + SOW (Merged)',
+    description: 'A combined Master Services Agreement and Statement of Work for a new client engagement.',
+    filename: 'msa-sow.docx',
   },
   {
-    slug: 'sow',
-    name: 'Statement of Work',
-    description:
-      'Project-level SOW with scope, milestones, line-item budget, invoicing schedule, obligations, and assumptions. Designed to live under an existing MSA.',
-    filename: 'sow.docx',
+    slug: 'sow-standalone',
+    name: 'Standalone SOW',
+    description: 'A Statement of Work governed by an existing MSA.',
+    filename: 'sow-standalone.docx',
+  },
+  {
+    slug: 'change-order',
+    name: 'Change Order',
+    description: 'An amendment to an existing SOW modifying scope, timeline, or fees.',
+    filename: 'change-order.docx',
+  },
+  {
+    slug: 'softway-msa',
+    name: 'Softway MSA (New)',
+    description: 'The newly imported Softway Master Services Agreement template.',
+    filename: 'Softway_MSA_Template.docx',
   },
 ];
 

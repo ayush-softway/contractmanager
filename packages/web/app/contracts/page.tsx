@@ -116,7 +116,7 @@ export default function ContractsPage() {
           {/* Create-contract tile — the equivalent of Docs' "Blank document" */}
           <button
             type="button"
-            onClick={() => router.push('/contracts/new')}
+            onClick={() => router.push('/contracts/generate')}
             className="group flex w-44 flex-shrink-0 flex-col focus:outline-none"
           >
             <div className="flex h-56 w-44 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 bg-white transition hover:border-brand hover:bg-brand/5">

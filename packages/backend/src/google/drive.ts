@@ -119,3 +119,18 @@ export async function getFileName(userId: string, fileId: string): Promise<strin
   const res = await drive.files.get({ fileId, fields: 'name' });
   return res.data.name ?? null;
 }
+
+export async function exportAsPdf(userId: string, fileId: string): Promise<Buffer> {
+  const drive = driveFor(userId);
+  const res = await drive.files.export(
+    { fileId, mimeType: 'application/pdf' },
+    { responseType: 'stream' },
+  );
+  
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    res.data.on('data', (chunk: Buffer) => chunks.push(chunk));
+    res.data.on('end', () => resolve(Buffer.concat(chunks)));
+    res.data.on('error', reject);
+  });
+}
