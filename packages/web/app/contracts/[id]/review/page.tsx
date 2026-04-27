@@ -153,7 +153,18 @@ export default function ReviewPage() {
           <LegalLockBadge />
 
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            {contract.drive_file_id ? (
+            {contract.drive_file_id === 'demo-mock-id' ? (
+              <div className="w-full h-[700px] flex items-center justify-center bg-slate-50">
+                <div className="text-center p-8 border border-slate-200 bg-white shadow-sm rounded-xl max-w-sm">
+                  <span className="text-4xl block mb-4">📄</span>
+                  <h3 className="font-bold text-slate-900 mb-2">Demo Mode Active</h3>
+                  <p className="text-sm text-slate-500">
+                    Google Drive sync is disabled in this unauthenticated demo. 
+                    In production, the generated {contractType === 'msa-sow' ? 'MSA + SOW-01' : 'Contract'} Google Doc would appear here.
+                  </p>
+                </div>
+              </div>
+            ) : contract.drive_file_id ? (
               <iframe
                 src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}
                 className="w-full h-[700px] border-0"

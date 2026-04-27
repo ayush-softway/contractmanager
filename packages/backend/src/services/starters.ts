@@ -24,7 +24,7 @@ export const STARTERS: Starter[] = [
     description: 'New client — full MSA + SOW merged, all 6 legal protections.',
     version: 'v2',
     active: true,
-    filename: 'msa-sow.docx',
+    filename: 'Softway_MSA_Template.docx',
   },
   {
     slug: 'sow-standalone',

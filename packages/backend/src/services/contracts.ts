@@ -53,43 +53,47 @@ export async function generateContractV2(
     throw new Error(`Unknown contract type: ${contractType}`);
   }
 
-  // 3. Upload the .docx template to Google Drive as a new Google Doc
-  const drive = driveFor(userId);
-  const templatePath = getStarterFilePath(starter);
-  const fileBuffer = fs.readFileSync(templatePath);
+  let driveFileId = 'demo-mock-id';
 
-  const createRes = await drive.files.create({
-    requestBody: {
-      name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
-      mimeType: 'application/vnd.google-apps.document',
-    },
-    media: {
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      body: fs.createReadStream(templatePath),
-    },
-    fields: 'id',
-  });
+  // DEMO MODE: Skip actual Google Drive API calls if unauthenticated
+  if (userId !== 'demo-user') {
+    const drive = driveFor(userId);
+    const templatePath = getStarterFilePath(starter);
+    const fileBuffer = fs.readFileSync(templatePath);
 
-  const driveFileId = createRes.data.id!;
-
-  // 4. Replace {{variables}} in the Google Doc
-  const { google } = await import('googleapis');
-  const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
-
-  const requests = Object.entries(fields)
-    .filter(([_, value]) => value)
-    .map(([key, value]) => ({
-      replaceAllText: {
-        containsText: { text: `{{${key}}}`, matchCase: false },
-        replaceText: value,
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+        mimeType: 'application/vnd.google-apps.document',
       },
-    }));
-
-  if (requests.length > 0) {
-    await docs.documents.batchUpdate({
-      documentId: driveFileId,
-      requestBody: { requests },
+      media: {
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        body: fs.createReadStream(templatePath),
+      },
+      fields: 'id',
     });
+
+    driveFileId = createRes.data.id!;
+
+    // 4. Replace {{variables}} in the Google Doc
+    const { google } = await import('googleapis');
+    const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
+
+    const requests = Object.entries(fields)
+      .filter(([_, value]) => value)
+      .map(([key, value]) => ({
+        replaceAllText: {
+          containsText: { text: `{{${key}}}`, matchCase: false },
+          replaceText: value,
+        },
+      }));
+
+    if (requests.length > 0) {
+      await docs.documents.batchUpdate({
+        documentId: driveFileId,
+        requestBody: { requests },
+      });
+    }
   }
 
   // 5. Save contract record to DB

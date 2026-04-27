@@ -63,10 +63,7 @@ export function sessionMiddleware(req: Request, _res: Response, next: NextFuncti
 
 /** Reject requests that don't have a valid session. Mount after sessionMiddleware. */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  const userId = (req as Request & { userId?: string }).userId;
-  if (!userId) {
-    res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
-    return;
-  }
+  // DEMO MODE: Bypass auth completely
+  (req as Request & { userId?: string }).userId = 'demo-user';
   next();
 }
