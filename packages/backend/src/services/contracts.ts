@@ -4,28 +4,13 @@
 // fill variables → save contract record.
 
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { marked } from 'marked';
 import { db } from '../db/client.js';
 import { driveFor } from '../google/clients.js';
-import { getStarter, getStarterFilePath } from './starters.js';
+import { getStarter, getStarterDocxPath, getStarterMdPath, getRequiredFieldKeys } from './starters.js';
+import { verifyClauseCoverage } from './ai.js';
 import type { ContractType } from '@cg/shared';
-import fs from 'node:fs';
-
-// Required fields per contract type
-const REQUIRED_FIELDS: Record<ContractType, string[]> = {
-  'msa-sow': [
-    'client_legal_name', 'client_address', 'client_contact_name',
-    'client_contact_email', 'softway_rep', 'project_fee_usd',
-    'completion_date', 'service_type',
-  ],
-  'sow-standalone': [
-    'client_legal_name', 'msa_date', 'softway_rep',
-    'project_fee_usd', 'completion_date', 'service_type',
-  ],
-  'change-order': [
-    'client_legal_name', 'sow_number', 'completion_date',
-    'project_fee_usd',
-  ],
-};
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -41,8 +26,8 @@ export async function generateContractV2(
 ): Promise<{ contractId: string; driveFileId: string; previewUrl: string }> {
 
   // 1. Validate — block if any required field is empty
-  const required = REQUIRED_FIELDS[contractType] ?? [];
-  const missing = required.filter(f => !fields[f]);
+  const required = getRequiredFieldKeys(contractType);
+  const missing = required.filter(f => !fields[f]?.trim());
   if (missing.length > 0) {
     throw new ValidationError(`Missing required fields: ${missing.join(', ')}`);
   }
@@ -50,16 +35,16 @@ export async function generateContractV2(
   // 2. Get the correct locked template for this contract type
   const starter = getStarter(contractType);
   if (!starter) {
-    throw new Error(`Unknown contract type: ${contractType}`);
+    throw new ValidationError(`Unknown contract type: ${contractType}`);
   }
 
   let driveFileId = 'demo-mock-id';
+  let renderedHtml = '';
 
   // DEMO MODE: Skip actual Google Drive API calls if unauthenticated
   if (userId !== 'demo-user') {
     const drive = driveFor(userId);
-    const templatePath = getStarterFilePath(starter);
-    const fileBuffer = fs.readFileSync(templatePath);
+    const templatePath = getStarterDocxPath(starter);
 
     const createRes = await drive.files.create({
       requestBody: {
@@ -75,7 +60,7 @@ export async function generateContractV2(
 
     driveFileId = createRes.data.id!;
 
-    // 4. Replace {{variables}} in the Google Doc
+    // Replace {{variables}} in the Google Doc
     const { google } = await import('googleapis');
     const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
 
@@ -94,13 +79,29 @@ export async function generateContractV2(
         requestBody: { requests },
       });
     }
+  } else {
+    // Demo mode: read .md, substitute variables, convert to HTML
+    const mdPath = getStarterMdPath(starter);
+    let markdown = fs.readFileSync(mdPath, 'utf-8');
+    const fieldMap = new Map(Object.entries(fields).map(([k, v]) => [k.toLowerCase(), v]));
+    markdown = markdown.replace(/\{\{(\w+)\}\}/g, (_, key) =>
+      fieldMap.get(key.toLowerCase()) ?? `[${key} not provided]`
+    );
+    renderedHtml = await marked.parse(markdown);
   }
 
-  // 5. Save contract record to DB
+  // Run clause coverage checks on the rendered HTML
+  const clauses = db.prepare('SELECT * FROM clauses').all() as any[];
+  const clauseChecks = renderedHtml
+    ? await verifyClauseCoverage(renderedHtml, clauses)
+    : {};
+
+  // 3. Save contract record to DB
   const contractId = crypto.randomUUID();
   db.prepare(`
-    INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id, field_values_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'generated', ?, ?, datetime('now'), datetime('now'))
+    INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id,
+      field_values_json, rendered_html_snapshot, clause_checks_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'generated', ?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(
     contractId,
     userId,
@@ -108,6 +109,8 @@ export async function generateContractV2(
     contractType,
     driveFileId,
     JSON.stringify(fields),
+    renderedHtml,
+    JSON.stringify(clauseChecks),
   );
 
   return {

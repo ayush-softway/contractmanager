@@ -4,36 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import AppShell from '@/components/AppShell';
-import type { ChatMessage, ContractType } from '@cg/shared';
-
-const REQUIRED_FIELDS = [
-  'client_legal_name', 'client_address', 'client_contact_name', 'client_contact_email',
-  'softway_rep', 'contract_type', 'project_fee_usd', 'completion_date', 'service_type',
-];
-
-const FIELD_LABELS: Record<string, string> = {
-  client_legal_name: 'Client Legal Name',
-  client_address: 'Client Address',
-  client_contact_name: 'Contact Name',
-  client_contact_email: 'Contact Email',
-  softway_rep: 'Softway Rep',
-  contract_type: 'Contract Type',
-  project_fee_usd: 'Project Fee',
-  completion_date: 'Completion Date',
-  service_type: 'Service Type',
-  msa_date: 'Prior MSA Date',
-  sow_number: 'SOW Number',
-  workshop_count: 'Workshop Count',
-  duration_hrs: 'Duration (hrs)',
-  attendee_count: 'Attendee Count',
-  facilitator_count: 'Facilitators',
-  location: 'Location',
-  travel_required: 'Travel Required',
-  travel_cap: 'Travel Cap',
-  payment_structure: 'Payment Structure',
-};
-
-const ALL_FIELDS = Object.keys(FIELD_LABELS);
+import type { ChatMessage, ContractType, FieldDef } from '@cg/shared';
 
 function extractChips(reply: string): string[] {
   const match = reply.match(/\[CHIPS:\s*([^\]]+)\]/);
@@ -62,6 +33,7 @@ export default function GenerateContractPage() {
   const [capturedFields, setCapturedFields] = useState<Record<string, string>>(
     templateSlug ? { contract_type: templateSlug } : {},
   );
+  const [fieldDefs, setFieldDefs] = useState<FieldDef[]>([]);
   const [chips, setChips] = useState<string[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -70,15 +42,25 @@ export default function GenerateContractPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const filledCount = REQUIRED_FIELDS.filter((f) => capturedFields[f]).length;
-  const allReady = filledCount >= REQUIRED_FIELDS.length;
+  const currentContractType = (capturedFields.contract_type ?? templateSlug ?? 'msa-sow') as ContractType;
+
+  useEffect(() => {
+    api.listFields(currentContractType)
+      .then((r) => setFieldDefs(r.fields))
+      .catch(() => {});
+  }, [currentContractType]);
+
+  const requiredKeys = fieldDefs.filter((f) => f.required).map((f) => f.key);
+  const filledCount = requiredKeys.filter((k) => capturedFields[k]).length;
+  const totalRequired = requiredKeys.length;
+  const allReady = totalRequired > 0 && filledCount >= totalRequired;
+  const progressPct = totalRequired > 0 ? Math.round((filledCount / totalRequired) * 100) : 0;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [displayedMessages, loading]);
 
   useEffect(() => {
-    // Slide in the checklist panel after first field is captured
     if (Object.keys(capturedFields).length > 0 && !fieldPanelOpen) {
       setFieldPanelOpen(true);
     }
@@ -99,7 +81,6 @@ export default function GenerateContractPage() {
     try {
       const result = await api.intakeChat({ history: newHistory, message: userMsg });
 
-      // Merge newly captured fields
       if (Object.keys(result.fields).length > 0) {
         setCapturedFields((prev) => ({ ...prev, ...result.fields }));
       }
@@ -112,7 +93,6 @@ export default function GenerateContractPage() {
       setChips(newChips);
 
       if (result.ready) {
-        // All fields captured — generate the contract
         await generateContract({ ...capturedFields, ...result.fields });
       }
     } catch {
@@ -145,8 +125,6 @@ export default function GenerateContractPage() {
     await generateContract(capturedFields);
   }
 
-  const progressPct = Math.round((filledCount / REQUIRED_FIELDS.length) * 100);
-
   return (
     <AppShell>
       <div className="flex h-[calc(100vh-3rem)]">
@@ -156,7 +134,7 @@ export default function GenerateContractPage() {
           <div className="px-6 py-3 border-b border-slate-200 bg-white">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-medium text-slate-600">
-                {filledCount} of {REQUIRED_FIELDS.length} fields captured
+                {filledCount} of {totalRequired} required fields captured
               </span>
               <button
                 onClick={() => setFieldPanelOpen((o) => !o)}
@@ -284,7 +262,7 @@ export default function GenerateContractPage() {
           </div>
         </div>
 
-        {/* Right panel — field checklist (slides in after first field) */}
+        {/* Right panel — field checklist */}
         <div
           className={`border-l border-slate-200 bg-white transition-all duration-300 overflow-hidden shrink-0 ${
             fieldPanelOpen ? 'w-64' : 'w-0'
@@ -300,24 +278,23 @@ export default function GenerateContractPage() {
               </button>
             </div>
             <div className="space-y-2">
-              {ALL_FIELDS.map((field) => {
-                const captured = Boolean(capturedFields[field]);
-                const required = REQUIRED_FIELDS.includes(field);
+              {fieldDefs.map((fieldDef) => {
+                const captured = Boolean(capturedFields[fieldDef.key]);
                 return (
-                  <div key={field} className="flex items-start gap-2">
+                  <div key={fieldDef.key} className="flex items-start gap-2">
                     <span className={`mt-0.5 text-sm ${captured ? 'text-teal-500' : 'text-slate-300'}`}>
                       {captured ? '✅' : '⬜'}
                     </span>
                     <div>
                       <span className={`text-xs ${captured ? 'text-slate-700 font-medium' : 'text-slate-400'}`}>
-                        {FIELD_LABELS[field]}
+                        {fieldDef.label}
                       </span>
-                      {required && !captured && (
+                      {fieldDef.required && !captured && (
                         <span className="ml-1 text-[10px] text-slate-300">*</span>
                       )}
-                      {captured && capturedFields[field] && (
+                      {captured && capturedFields[fieldDef.key] && (
                         <p className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[160px]">
-                          {capturedFields[field]}
+                          {capturedFields[fieldDef.key]}
                         </p>
                       )}
                     </div>

@@ -12,8 +12,11 @@ build/
 # DB
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
+*.bak
 
 # logs
 *.log

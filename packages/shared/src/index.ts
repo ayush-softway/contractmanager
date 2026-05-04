@@ -4,6 +4,18 @@
 export type ISODateString = string;
 
 // --------------------------------------------------------------------------
+// Field definitions (mirrors backend fields.ts — kept in sync manually)
+// --------------------------------------------------------------------------
+export interface FieldDef {
+  key: string;
+  label: string;
+  required: boolean;
+  types: string[];
+  chips?: string[];
+  format?: 'date' | 'currency' | 'email' | 'text';
+}
+
+// --------------------------------------------------------------------------
 // User
 // --------------------------------------------------------------------------
 export interface User {
@@ -35,6 +47,8 @@ export interface Contract {
   docusignEnvelopeId?: string;
   importSourceJson?: { source: ImportSource; label: string; importedAt: string };
   fieldValuesJson?: Record<string, string>;
+  renderedHtmlSnapshot?: string;
+  clauseChecksJson?: string;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
@@ -101,6 +115,8 @@ export interface ReviewChatRequest {
 export interface ReviewChatResponse {
   reply: string;
   edited: boolean;
+  updatedHtml?: string;
+  patch?: { field: string; newValue: string };
 }
 
 // --------------------------------------------------------------------------

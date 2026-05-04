@@ -5,17 +5,24 @@ import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import LegalLockBadge from '@/components/LegalLockBadge';
 import ClauseCoverage from '@/components/ClauseCoverage';
+import ContractDoc from '@/components/ContractDoc';
 import AppShell from '@/components/AppShell';
-import type { Contract, ContractType, ChatMessage } from '@cg/shared';
+import type { ContractType, ChatMessage } from '@cg/shared';
 
 export default function ReviewPage() {
   const params = useParams();
   const router = useRouter();
   const [contract, setContract] = useState<any>(null);
+  const [renderedHtml, setRenderedHtml] = useState<string>('');
+  const [lastPatchedField, setLastPatchedField] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [error, setError] = useState('');
+
+  // Clause checks (Phase 3)
+  const [clauseChecks, setClauseChecks] = useState<Record<string, boolean>>({});
+  const [clauseNames, setClauseNames] = useState<Record<string, string>>({});
 
   // AI chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -28,9 +35,27 @@ export default function ReviewPage() {
   useEffect(() => {
     api
       .getContract(params.id as string)
-      .then(({ contract }) => setContract(contract))
+      .then(({ contract: c }) => {
+        const raw = c as any;
+        setContract(raw);
+        if (raw.rendered_html_snapshot) {
+          setRenderedHtml(raw.rendered_html_snapshot);
+        }
+        if (raw.clause_checks_json) {
+          try { setClauseChecks(JSON.parse(raw.clause_checks_json)); } catch {}
+        }
+      })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
+
+    // Fetch clause names for display
+    api.listClauses()
+      .then(({ clauses }) => {
+        const names: Record<string, string> = {};
+        clauses.forEach((c) => { names[c.id] = c.name; });
+        setClauseNames(names);
+      })
+      .catch(() => {});
   }, [params.id]);
 
   useEffect(() => {
@@ -60,6 +85,18 @@ export default function ReviewPage() {
     try {
       const result = await api.reviewChat(contract.id, message);
       setChatMessages((prev) => [...prev, { role: 'assistant', content: result.reply }]);
+
+      if (result.updatedHtml) {
+        setRenderedHtml(result.updatedHtml);
+        setLastPatchedField(result.patch?.field);
+        // Re-fetch contract to update left panel field values and clause checks
+        const { contract: updated } = await api.getContract(contract.id as string);
+        const updatedRaw = updated as any;
+        setContract(updatedRaw);
+        if (updatedRaw.clause_checks_json) {
+          try { setClauseChecks(JSON.parse(updatedRaw.clause_checks_json)); } catch {}
+        }
+      }
     } catch {
       setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, I ran into an error. Please try again.' }]);
     } finally {
@@ -105,6 +142,9 @@ export default function ReviewPage() {
     { label: 'Attendees', value: fieldValues.attendee_count },
   ].filter((f): f is { label: string; value: string } => Boolean(f.value));
 
+  const allClausesPass = Object.keys(clauseChecks).length > 0
+    && Object.values(clauseChecks).every(Boolean);
+
   return (
     <AppShell>
       <div className="flex flex-col h-[calc(100vh-3rem)]">
@@ -146,7 +186,7 @@ export default function ReviewPage() {
             </div>
 
             <div className="p-5 flex-1">
-              <ClauseCoverage contractType={contractType} />
+              <ClauseCoverage clauseChecks={clauseChecks} clauseNames={clauseNames} />
             </div>
 
             <div className="p-4 border-t border-slate-100 space-y-2">
@@ -158,7 +198,8 @@ export default function ReviewPage() {
               </button>
               <button
                 onClick={handleSendForSignature}
-                disabled={sending || contract.status === 'sent'}
+                disabled={sending || contract.status === 'sent' || !allClausesPass}
+                title={!allClausesPass ? 'All clause checks must pass before sending' : undefined}
                 className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 {sending ? (
@@ -171,19 +212,17 @@ export default function ReviewPage() {
             </div>
           </div>
 
-          {/* Right panel — Google Doc iframe */}
+          {/* Right panel — rendered contract or Drive iframe */}
           <div className="flex-1 flex flex-col min-w-0 bg-slate-100">
-            <div className="flex-1 overflow-hidden">
+            <div className="flex-1 overflow-hidden flex flex-col">
               {contract.drive_file_id === 'demo-mock-id' ? (
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="text-center p-8 border border-slate-200 bg-white shadow-sm rounded-xl max-w-sm">
-                    <span className="text-4xl block mb-4">📄</span>
-                    <h3 className="font-bold text-slate-900 mb-2">Demo Mode Active</h3>
-                    <p className="text-sm text-slate-500">
-                      Google Drive sync is disabled in this demo. In production, the generated {typeLabel} Google Doc would appear here.
-                    </p>
+                renderedHtml ? (
+                  <ContractDoc html={renderedHtml} highlightField={lastPatchedField} />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                    Generating preview...
                   </div>
-                </div>
+                )
               ) : contract.drive_file_id ? (
                 <iframe
                   src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}

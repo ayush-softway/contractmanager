@@ -6,6 +6,7 @@
 
 import type {
   Contract,
+  FieldDef,
   ImportResult,
   GenerateContractPayload,
   DocuSignEnvelope,
@@ -49,6 +50,10 @@ export const api = {
 
   // Starters catalog (no auth needed)
   listStarters: () => req<{ starters: StarterTemplate[] }>('/contracts/starters'),
+
+  // Field definitions for a contract type (no auth needed)
+  listFields: (contractType: string) =>
+    req<{ fields: FieldDef[] }>(`/contracts/fields?type=${contractType}`),
 
   // Contract generation
   generateContract: (payload: GenerateContractPayload) =>

@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS contracts (
   docusign_envelope_id TEXT,
   import_source_json TEXT,
   field_values_json TEXT,
+  rendered_html_snapshot TEXT,
+  clause_checks_json TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

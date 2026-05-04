@@ -52,7 +52,7 @@ const IntakeOutputSchema = z.object({
 
 const ReviewOutputSchema = z.object({
   reply: z.string(),
-  edit: z.object({ find: z.string(), replace: z.string() }).optional(),
+  patch: z.object({ field: z.string(), newValue: z.string() }).optional(),
   edited: z.boolean().optional(),
 });
 
@@ -107,48 +107,75 @@ function parseJson<T>(text: string, schema: z.ZodType<T>): T | null {
 const INTAKE_SYSTEM = `You are ContractGen, an AI assistant helping Softway Solutions build contracts.
 Your job is to collect the required fields for a contract through natural conversation.
 
-Required fields to collect:
+Supported contract types: msa-sow, sow-standalone, change-order.
+Do NOT offer or accept nda or employment-contract — those are not supported.
+
+Required fields for ALL types:
 - client_legal_name: Full legal name of the client company
-- client_address: Client's registered address
-- client_contact_name: Primary contact person name
-- client_contact_email: Primary contact email
+- client_office_address: Client's registered office address
 - softway_rep: Softway account representative name
-- contract_type: Type of contract (msa-sow, sow-standalone, change-order, nda, employment-contract)
-- project_fee_usd: Total project fee in USD (numbers only, no $ sign)
+- project_fee_usd: Total project fee in USD (numbers only, no $ sign, no commas)
 - completion_date: Project completion date (YYYY-MM-DD format)
 - service_type: Description of services being provided
 
+Additional required fields for msa-sow:
+- effective_date: MSA effective date (YYYY-MM-DD)
+- client_contact_name: Primary contact person name
+- client_contact_email: Primary contact email
+- client_signatory_name: Name of the person signing for the client
+- client_signatory_title: Title of the person signing for the client
+
+Additional required fields for sow-standalone:
+- msa_date: Date of the existing MSA (YYYY-MM-DD)
+- sow_number: SOW number (e.g. "001" or "SOW-001")
+
+Additional required fields for change-order:
+- sow_number: SOW number being changed
+- change_description: Description of what is changing
+- original_fee_usd: Original project fee (numbers only, no $ sign)
+
 Optional fields (collect if mentioned):
-- contract_date: Contract effective date (YYYY-MM-DD)
-- msa_date: Date of existing MSA (for sow-standalone)
-- sow_number: SOW number (for change-order)
+- payment_structure: Payment terms (e.g. "50% on signing, 50% on completion, Net 30")
+- location: Location where services will be delivered
+- travel_required: Whether travel is required (Yes or No)
+- travel_cap: Travel expense cap in USD (numbers only)
 - workshop_count: Number of workshops
-- duration_hrs: Duration per workshop in hours
 - attendee_count: Expected number of attendees
 - facilitator_count: Number of facilitators
-- location: Event location
-- travel_required: Whether travel is required (yes/no)
-- travel_cap: Travel expense cap in USD
-- payment_structure: Payment terms (e.g. "50% upfront, 50% on completion")
+- duration_hrs: Duration per workshop in hours
+- signature_date: Date of signing (YYYY-MM-DD)
 
 Rules:
 1. Ask ONE question at a time — never a form
-2. Confirm extracted values before moving on: "I found X — is that right?"
-3. When the user pastes a URL or raw text, extract all available fields from it and confirm each
-4. Use option chips notation for bounded answers by including [CHIPS: option1 | option2 | option3] at the end of your message
-5. When all required fields are collected, say "Looks good — ready to generate your contract?" and set ready=true
-6. Respond in JSON: { "reply": "...", "fields": { "field_name": "value", ... }, "ready": false }
-7. Only include fields in the JSON that were newly confirmed in this turn
-8. Keep responses concise and conversational`;
+2. Confirm extracted values before moving on
+3. When the user pastes raw text, extract all available fields from it and confirm each
+4. Use option chips notation for bounded answers: [CHIPS: option1 | option2 | option3] at the end of your message
+5. When all required fields for the selected contract type are collected, say "Looks good — ready to generate your contract?" and set ready=true
+6. Respond ONLY in JSON: { "reply": "...", "fields": { "field_name": "value" }, "ready": false }
+7. Only include fields in "fields" that were newly confirmed in this turn
+8. All dates must be YYYY-MM-DD format
+9. project_fee_usd and original_fee_usd: numbers only, no $ or commas`;
 
 const REVIEW_SYSTEM = `You are ContractGen's contract assistant. You help users review and edit their contract.
-For edit commands (change fee, update timeline, modify clause text, etc.):
-- Understand what change they want
-- Respond with: { "reply": "Done — I've updated the fee to $120,000.", "edit": { "find": "old text", "replace": "new text" }, "edited": true }
+The contract's current field values are provided as key: value pairs.
+
+For edit commands (change fee, update timeline, extend deadline, modify name, etc.):
+- Identify which field the user wants to change and the new value
+- Reply: { "reply": "Done — updated the fee to $120,000.", "patch": { "field": "project_fee_usd", "newValue": "120000" }, "edited": true }
+
 For questions about the contract:
-- Answer in plain English
-- Respond with: { "reply": "...", "edited": false }
-Keep responses short and direct.`;
+- Reply: { "reply": "...", "edited": false }
+
+Known field keys: client_legal_name, client_office_address, project_fee_usd, completion_date,
+service_type, softway_rep, client_contact_name, client_contact_email, effective_date,
+payment_structure, location, travel_required, travel_cap, sow_number, signature_date,
+change_description, original_fee_usd, client_signatory_name, client_signatory_title
+
+Rules:
+- project_fee_usd and original_fee_usd: numbers only, no $ or commas
+- dates: YYYY-MM-DD format
+- Keep replies short and direct
+- Always return valid JSON`;
 
 const REDLINE_SYSTEM = `You are a contract attorney reviewing a client's redlined version of Softway Solutions' contract.
 Analyse each modified clause and return a JSON array. For each clause:
@@ -197,10 +224,11 @@ export async function intakeChat(
 }
 
 export async function reviewChat(
-  contractText: string,
+  fields: Record<string, string>,
   message: string,
-): Promise<{ reply: string; edit?: { find: string; replace: string }; edited: boolean }> {
+): Promise<{ reply: string; patch?: { field: string; newValue: string }; edited: boolean }> {
   try {
+    const fieldContext = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 1024,
@@ -208,18 +236,35 @@ export async function reviewChat(
       messages: [
         {
           role: 'user',
-          content: `Contract text:\n${contractText.slice(0, 6000)}\n\nUser instruction: ${message}`,
+          content: `Current contract fields:\n${fieldContext}\n\nUser instruction: ${message}`,
         },
       ],
     });
 
     const text = extractText(response);
     const parsed = parseJson(text, ReviewOutputSchema);
-    if (parsed) return { reply: parsed.reply, edit: parsed.edit, edited: parsed.edited ?? false };
+    if (parsed) return { reply: parsed.reply, patch: parsed.patch, edited: parsed.edited ?? false };
     return { reply: text, edited: false };
   } catch (err) {
     handleAnthropicError(err);
   }
+}
+
+export async function verifyClauseCoverage(
+  renderedHtml: string,
+  clauses: Array<{ id: string; name: string; body: string; type: string }>,
+): Promise<Record<string, boolean>> {
+  const results: Record<string, boolean> = {};
+  const htmlLower = renderedHtml.toLowerCase();
+  for (const clause of clauses) {
+    if (clause.type === 'non-negotiable') {
+      const keyPhrase = clause.body.slice(0, 30).toLowerCase();
+      results[clause.id] = htmlLower.includes(keyPhrase);
+    } else {
+      results[clause.id] = true;
+    }
+  }
+  return results;
 }
 
 export async function analyzeRedlines(docText: string): Promise<RedlineClause[]> {

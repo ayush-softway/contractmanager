@@ -16,3 +16,8 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
+
+.field-flash {
+  background-color: #fef9c3;
+  transition: background-color 1.5s ease-out;
+}

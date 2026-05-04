@@ -10,7 +10,7 @@ import { requireAuth } from '../auth/session.js';
 import { generateContractV2, getContract, listContracts, updateContractStatus, ValidationError } from '../services/contracts.js';
 import { createEnvelope } from '../services/docusign.js';
 import { exportAsPdf } from '../google/drive.js';
-import { STARTERS } from '../services/starters.js';
+import { STARTERS, getFieldsForType } from '../services/starters.js';
 import type { Request } from 'express';
 
 export const contractsRouter: Router = Router();
@@ -31,6 +31,12 @@ contractsRouter.get('/starters', (_req, res) => {
       description: s.description,
     })),
   });
+});
+
+// GET /contracts/fields?type=msa-sow — field definitions for a contract type
+contractsRouter.get('/fields', (_req, res) => {
+  const type = String(_req.query.type ?? 'msa-sow');
+  res.json({ fields: getFieldsForType(type) });
 });
 
 // GET /contracts/:id — get single contract

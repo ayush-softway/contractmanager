@@ -5,6 +5,7 @@
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAllFieldsForType, getRequiredKeys } from './fields.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,7 +15,8 @@ export interface Starter {
   description: string;
   version: string;
   active: boolean;
-  filename: string;
+  mdFilename: string;
+  docxFilename: string;
 }
 
 export const STARTERS: Starter[] = [
@@ -24,7 +26,8 @@ export const STARTERS: Starter[] = [
     description: 'New client — full MSA + SOW merged, all 6 legal protections.',
     version: 'v2',
     active: true,
-    filename: 'Softway_MSA_Template.docx',
+    mdFilename: 'msa-sow.md',
+    docxFilename: 'Softway_MSA_Template.docx',
   },
   {
     slug: 'sow-standalone',
@@ -32,7 +35,8 @@ export const STARTERS: Starter[] = [
     description: 'Repeat client with existing MSA on file.',
     version: 'v2',
     active: true,
-    filename: 'sow-standalone.docx',
+    mdFilename: 'sow-standalone.md',
+    docxFilename: 'sow-standalone.docx',
   },
   {
     slug: 'change-order',
@@ -40,7 +44,8 @@ export const STARTERS: Starter[] = [
     description: 'Scope or pricing update to an existing SOW.',
     version: 'v2',
     active: true,
-    filename: 'change-order.docx',
+    mdFilename: 'change-order.md',
+    docxFilename: 'change-order.docx',
   },
 ];
 
@@ -48,6 +53,18 @@ export function getStarter(slug: string): Starter | undefined {
   return STARTERS.find((s) => s.slug === slug);
 }
 
-export function getStarterFilePath(starter: Starter): string {
-  return path.resolve(__dirname, '../../starter-templates', starter.filename);
+export function getStarterMdPath(starter: Starter): string {
+  return path.resolve(__dirname, '../../starter-templates', starter.mdFilename);
+}
+
+export function getStarterDocxPath(starter: Starter): string {
+  return path.resolve(__dirname, '../../starter-templates', starter.docxFilename);
+}
+
+export function getRequiredFieldKeys(contractType: string): string[] {
+  return getRequiredKeys(contractType);
+}
+
+export function getFieldsForType(contractType: string) {
+  return getAllFieldsForType(contractType);
 }

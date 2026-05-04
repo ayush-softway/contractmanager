@@ -20,5 +20,7 @@ db.exec(schemaSql);
 
 // Column-level migrations — try/catch because SQLite errors if column exists.
 try { db.exec(`ALTER TABLE templates ADD COLUMN sections_json TEXT NOT NULL DEFAULT '[]'`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE contracts ADD COLUMN rendered_html_snapshot TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE contracts ADD COLUMN clause_checks_json TEXT`); } catch { /* already exists */ }
 
 export type DB = typeof db;
