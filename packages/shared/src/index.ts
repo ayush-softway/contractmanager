@@ -75,6 +75,84 @@ export interface StarterTemplate {
 }
 
 // --------------------------------------------------------------------------
+// AI / Chat
+// --------------------------------------------------------------------------
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface IntakeChatRequest {
+  history: ChatMessage[];
+  message: string;
+}
+
+export interface IntakeChatResponse {
+  reply: string;
+  fields: Record<string, string>;
+  ready: boolean;
+}
+
+export interface ReviewChatRequest {
+  contractId: string;
+  message: string;
+}
+
+export interface ReviewChatResponse {
+  reply: string;
+  edited: boolean;
+}
+
+// --------------------------------------------------------------------------
+// Clause library
+// --------------------------------------------------------------------------
+export type ClauseType = 'non-negotiable' | 'flexible' | 'optional';
+
+export interface Clause {
+  id: string;
+  name: string;
+  type: ClauseType;
+  body: string;
+  updatedBy?: string;
+  updatedAt: ISODateString;
+}
+
+// --------------------------------------------------------------------------
+// Upload / Redline analysis
+// --------------------------------------------------------------------------
+export type ClauseVerdict = 'safe' | 'review' | 'conflict';
+
+export interface RedlineClause {
+  id: string;
+  name: string;
+  verdict: ClauseVerdict;
+  explanation: string;
+  resolution?: 'accepted' | 'rejected' | 'countered';
+  counterText?: string;
+}
+
+export interface RedlineAnalysis {
+  journey: 'j3a';
+  clauses: RedlineClause[];
+  driveFileId?: string;
+}
+
+export interface RiskFlag {
+  clauseName: string;
+  risk: string;
+  softwayVersion: string;
+}
+
+export interface ClientMSAAnalysis {
+  journey: 'j3b';
+  risks: RiskFlag[];
+  sowDraft: string;
+  driveFileId?: string;
+}
+
+export type UploadAnalysis = RedlineAnalysis | ClientMSAAnalysis;
+
+// --------------------------------------------------------------------------
 // API error shape
 // --------------------------------------------------------------------------
 export interface ApiError {

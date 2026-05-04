@@ -11,6 +11,12 @@ import type {
   DocuSignEnvelope,
   User,
   StarterTemplate,
+  ChatMessage,
+  IntakeChatRequest,
+  IntakeChatResponse,
+  ReviewChatResponse,
+  UploadAnalysis,
+  Clause,
 } from '@cg/shared';
 
 const BASE = '/api/backend';
@@ -61,4 +67,45 @@ export const api = {
       `/contracts/${contractId}/send-for-signature`,
       { method: 'POST' },
     ),
+
+  // AI — conversational intake
+  intakeChat: (payload: IntakeChatRequest) =>
+    req<IntakeChatResponse>('/ai/intake', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // AI — review screen chat (edit + Q&A)
+  reviewChat: (contractId: string, message: string) =>
+    req<ReviewChatResponse>('/ai/review-chat', {
+      method: 'POST',
+      body: JSON.stringify({ contractId, message }),
+    }),
+
+  // Upload — analyze client document
+  analyzeUpload: (payload: { text: string; driveFileId?: string }) =>
+    req<UploadAnalysis>('/upload/analyze', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Upload — J3A clause resolution
+  resolveClause: (payload: { clauseId: string; action: 'accepted' | 'rejected' | 'countered'; counterText?: string }) =>
+    req<{ ok: true }>('/upload/j3a/resolve', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Admin — clause library
+  listClauses: () => req<{ clauses: Clause[] }>('/admin/clauses'),
+  updateClause: (id: string, body: Partial<Clause>) =>
+    req<{ clause: Clause }>(`/admin/clauses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  createClause: (body: Omit<Clause, 'id' | 'updatedAt'>) =>
+    req<{ clause: Clause }>('/admin/clauses', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 };

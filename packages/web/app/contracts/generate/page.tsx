@@ -1,182 +1,333 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useRef, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
-import StepIndicator from '@/components/StepIndicator';
-import ContractTypeSelector from '@/components/ContractTypeSelector';
-import AddSourceBar from '@/components/AddSourceBar';
-import SmartField from '@/components/SmartField';
-import type { ContractType, ImportSource } from '@cg/shared';
+import AppShell from '@/components/AppShell';
+import type { ChatMessage, ContractType } from '@cg/shared';
 
-const ALL_FIELDS = [
-  { id: 'client_legal_name', label: 'Client Legal Name', type: 'text' as const },
-  { id: 'client_address', label: 'Client Address', type: 'text' as const },
-  { id: 'client_contact_name', label: 'Client Contact Name', type: 'text' as const },
-  { id: 'client_contact_email', label: 'Client Contact Email', type: 'email' as const },
-  { id: 'softway_rep', label: 'Softway Rep', type: 'text' as const },
-  { id: 'sow_number', label: 'SOW Number', type: 'text' as const },
-  { id: 'contract_date', label: 'Contract Date', type: 'date' as const },
-  { id: 'project_fee_usd', label: 'Total Value (USD)', type: 'number' as const },
-  { id: 'service_type', label: 'Service Type / Scope', type: 'text' as const },
-  { id: 'workshop_count', label: 'Workshop Count', type: 'number' as const },
-  { id: 'duration_hrs', label: 'Duration (hrs)', type: 'number' as const },
-  { id: 'attendee_count', label: 'Attendee Count', type: 'number' as const },
-  { id: 'facilitator_count', label: 'Facilitator Count', type: 'number' as const },
-  { id: 'location', label: 'Location', type: 'text' as const },
-  { id: 'completion_date', label: 'Completion Date', type: 'date' as const },
-  { id: 'event_dates', label: 'Event Dates', type: 'text' as const },
-  { id: 'payment_structure', label: 'Payment Structure', type: 'select' as const },
-  { id: 'discount_type', label: 'Discount Type', type: 'select' as const },
-  { id: 'discount_amount', label: 'Discount Amount', type: 'number' as const },
-  { id: 'travel_required', label: 'Travel Required', type: 'toggle' as const },
-  { id: 'travel_cap', label: 'Travel Cap (USD)', type: 'number' as const, conditional: 'travel_required' },
-  { id: 'msa_date', label: 'Prior MSA Date', type: 'date' as const, conditional: '_show_msa_date' },
+const REQUIRED_FIELDS = [
+  'client_legal_name', 'client_address', 'client_contact_name', 'client_contact_email',
+  'softway_rep', 'contract_type', 'project_fee_usd', 'completion_date', 'service_type',
 ];
 
-const REQUIRED_FIELDS: Record<ContractType, string[]> = {
-  'msa-sow': ['client_legal_name', 'client_address', 'client_contact_name', 'client_contact_email', 'softway_rep', 'project_fee_usd', 'completion_date', 'service_type'],
-  'sow-standalone': ['client_legal_name', 'msa_date', 'softway_rep', 'project_fee_usd', 'completion_date', 'service_type'],
-  'change-order': ['client_legal_name', 'sow_number', 'completion_date', 'project_fee_usd'],
+const FIELD_LABELS: Record<string, string> = {
+  client_legal_name: 'Client Legal Name',
+  client_address: 'Client Address',
+  client_contact_name: 'Contact Name',
+  client_contact_email: 'Contact Email',
+  softway_rep: 'Softway Rep',
+  contract_type: 'Contract Type',
+  project_fee_usd: 'Project Fee',
+  completion_date: 'Completion Date',
+  service_type: 'Service Type',
+  msa_date: 'Prior MSA Date',
+  sow_number: 'SOW Number',
+  workshop_count: 'Workshop Count',
+  duration_hrs: 'Duration (hrs)',
+  attendee_count: 'Attendee Count',
+  facilitator_count: 'Facilitators',
+  location: 'Location',
+  travel_required: 'Travel Required',
+  travel_cap: 'Travel Cap',
+  payment_structure: 'Payment Structure',
 };
+
+const ALL_FIELDS = Object.keys(FIELD_LABELS);
+
+function extractChips(reply: string): string[] {
+  const match = reply.match(/\[CHIPS:\s*([^\]]+)\]/);
+  if (!match || !match[1]) return [];
+  return match[1].split('|').map((s) => s.trim()).filter(Boolean);
+}
+
+function cleanReply(reply: string): string {
+  return reply.replace(/\[CHIPS:[^\]]*\]/g, '').trim();
+}
 
 export default function GenerateContractPage() {
   const router = useRouter();
-  const [contractType, setContractType] = useState<ContractType>('msa-sow');
-  const [fields, setFields] = useState<Record<string, string>>({
-    contract_date: new Date().toLocaleDateString('en-US'),
-  });
-  const [fieldSources, setFieldSources] = useState<Record<string, ImportSource | 'auto' | 'manual'>>({
-    contract_date: 'auto',
-  });
-  const [sourceChips, setSourceChips] = useState<{ id: string; label: string; type: string }[]>([]);
-  const [error, setError] = useState('');
+  const searchParams = useSearchParams();
+  const templateSlug = searchParams.get('template');
+
+  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const [displayedMessages, setDisplayedMessages] = useState<ChatMessage[]>([
+    {
+      role: 'assistant',
+      content: templateSlug
+        ? `Using the ${templateSlug.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())} template. Let's build your contract. Who's the client?`
+        : "Let's build your contract. Who's the client?",
+    },
+  ]);
+  const [capturedFields, setCapturedFields] = useState<Record<string, string>>(
+    templateSlug ? { contract_type: templateSlug } : {},
+  );
+  const [chips, setChips] = useState<string[]>([]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showValidation, setShowValidation] = useState(false);
-  const firstErrorRef = useRef<HTMLDivElement>(null);
+  const [generating, setGenerating] = useState(false);
+  const [fieldPanelOpen, setFieldPanelOpen] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Conditional field visibility
-  const showTravelCap = fields.travel_required === 'yes';
-  const showMsaDate = contractType === 'sow-standalone' || fields._prior_msa === 'yes';
+  const filledCount = REQUIRED_FIELDS.filter((f) => capturedFields[f]).length;
+  const allReady = filledCount >= REQUIRED_FIELDS.length;
 
-  const visibleFields = ALL_FIELDS.filter(f => {
-    if (f.conditional === 'travel_required' && !showTravelCap) return false;
-    if (f.conditional === '_show_msa_date' && !showMsaDate) return false;
-    return true;
-  });
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [displayedMessages, loading]);
 
-  const requiredForType = REQUIRED_FIELDS[contractType] ?? [];
-
-  const handleSourceImported = (imported: {
-    fields: Record<string, string>;
-    source: string;
-    label: string;
-  }) => {
-    const newSources: Record<string, ImportSource> = {};
-    Object.keys(imported.fields).forEach(k => {
-      if (imported.fields[k]) newSources[k] = imported.source as ImportSource;
-    });
-    setFields(prev => ({ ...prev, ...imported.fields }));
-    setFieldSources(prev => ({ ...prev, ...newSources }));
-    setSourceChips(prev => [
-      ...prev,
-      { id: Date.now().toString(), label: imported.label, type: imported.source },
-    ]);
-  };
-
-  const handleFieldChange = (id: string, value: string) => {
-    setFields(prev => ({ ...prev, [id]: value }));
-    setFieldSources(prev => ({ ...prev, [id]: 'manual' }));
-  };
-
-  const handleGenerate = async () => {
-    setShowValidation(true);
-    setError('');
-
-    const missing = requiredForType.filter(k => !fields[k]);
-    if (missing.length > 0) {
-      setError(`Missing required fields: ${missing.map(k => ALL_FIELDS.find(f => f.id === k)?.label || k).join(', ')}`);
-      // Scroll to first error
-      setTimeout(() => {
-        const el = document.querySelector('[data-unfilled="true"]');
-        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 100);
-      return;
+  useEffect(() => {
+    // Slide in the checklist panel after first field is captured
+    if (Object.keys(capturedFields).length > 0 && !fieldPanelOpen) {
+      setFieldPanelOpen(true);
     }
+  }, [capturedFields]);
 
+  async function sendMessage(text: string) {
+    const userMsg = text.trim();
+    if (!userMsg || loading) return;
+    setInput('');
+    setChips([]);
+
+    const newUserMsg: ChatMessage = { role: 'user', content: userMsg };
+    const newHistory = [...history, newUserMsg];
+    setHistory(newHistory);
+    setDisplayedMessages((prev) => [...prev, newUserMsg]);
     setLoading(true);
+
     try {
+      const result = await api.intakeChat({ history: newHistory, message: userMsg });
+
+      // Merge newly captured fields
+      if (Object.keys(result.fields).length > 0) {
+        setCapturedFields((prev) => ({ ...prev, ...result.fields }));
+      }
+
+      const assistantMsg: ChatMessage = { role: 'assistant', content: result.reply };
+      setHistory((prev) => [...prev, assistantMsg]);
+      setDisplayedMessages((prev) => [...prev, assistantMsg]);
+
+      const newChips = extractChips(result.reply);
+      setChips(newChips);
+
+      if (result.ready) {
+        // All fields captured — generate the contract
+        await generateContract({ ...capturedFields, ...result.fields });
+      }
+    } catch {
+      setDisplayedMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: 'Sorry, I ran into an issue. Please try again.' },
+      ]);
+    } finally {
+      setLoading(false);
+      inputRef.current?.focus();
+    }
+  }
+
+  async function generateContract(fields: Record<string, string>) {
+    setGenerating(true);
+    try {
+      const contractType = (fields.contract_type ?? 'msa-sow') as ContractType;
       const result = await api.generateContract({ contractType, fields });
       router.push(`/contracts/${result.contractId}/review`);
     } catch (err: any) {
-      setError(err.message || 'Contract generation failed.');
-    } finally {
-      setLoading(false);
+      setDisplayedMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: `Generation failed: ${err.message ?? 'Unknown error'}. Please check your fields and try again.` },
+      ]);
+      setGenerating(false);
     }
-  };
+  }
+
+  async function handleConfirmGenerate() {
+    await generateContract(capturedFields);
+  }
+
+  const progressPct = Math.round((filledCount / REQUIRED_FIELDS.length) * 100);
 
   return (
-    <div className="max-w-4xl mx-auto py-8 px-4">
-      <StepIndicator currentStep={2} />
-
-      <h1 className="text-3xl font-bold text-slate-900 mb-8">Generate Contract</h1>
-
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Step 1: Contract Type */}
-      <ContractTypeSelector value={contractType} onChange={setContractType} />
-
-      {/* Step 1b: Add Source */}
-      <AddSourceBar
-        chips={sourceChips}
-        onImported={handleSourceImported}
-        onRemoveChip={(id) => setSourceChips(prev => prev.filter(c => c.id !== id))}
-        onError={(msg) => setError(msg)}
-      />
-
-      {/* Step 2: Contract Details */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 mb-8">
-        <h2 className="text-lg font-semibold text-slate-900 mb-6">Contract Details</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {visibleFields.map(field => {
-            const isRequired = requiredForType.includes(field.id);
-            const isUnfilled = isRequired && !fields[field.id] && showValidation;
-            return (
-              <SmartField
-                key={field.id}
-                id={field.id}
-                label={field.label}
-                type={field.type}
-                value={fields[field.id] || ''}
-                source={fieldSources[field.id]}
-                required={isRequired}
-                unfilled={isUnfilled}
-                onChange={(val) => handleFieldChange(field.id, val)}
+    <AppShell>
+      <div className="flex h-[calc(100vh-3rem)]">
+        {/* Main chat area */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Progress bar */}
+          <div className="px-6 py-3 border-b border-slate-200 bg-white">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-slate-600">
+                {filledCount} of {REQUIRED_FIELDS.length} fields captured
+              </span>
+              <button
+                onClick={() => setFieldPanelOpen((o) => !o)}
+                className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+              >
+                {fieldPanelOpen ? 'Hide checklist' : 'Show checklist'}
+              </button>
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-1.5">
+              <div
+                className="bg-teal-500 h-1.5 rounded-full transition-all duration-500"
+                style={{ width: `${progressPct}%` }}
               />
-            );
-          })}
+            </div>
+          </div>
+
+          {/* Chat messages */}
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
+            {displayedMessages.map((msg, i) => (
+              <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'assistant' && (
+                  <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center shrink-0 mt-1">
+                    <span className="text-sm">✨</span>
+                  </div>
+                )}
+                <div
+                  className={`max-w-lg px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                    msg.role === 'user'
+                      ? 'bg-teal-600 text-white rounded-br-sm'
+                      : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm'
+                  }`}
+                >
+                  {msg.role === 'assistant' ? cleanReply(msg.content) : msg.content}
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+                  <span className="text-sm">✨</span>
+                </div>
+                <div className="px-4 py-3 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {generating && (
+              <div className="flex gap-3 justify-start">
+                <div className="w-7 h-7 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+                  <span className="text-sm">✨</span>
+                </div>
+                <div className="px-4 py-3 rounded-2xl bg-teal-50 border border-teal-200 text-teal-800 text-sm font-medium shadow-sm">
+                  Generating your contract...
+                </div>
+              </div>
+            )}
+
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Option chips */}
+          {chips.length > 0 && (
+            <div className="px-6 py-2 flex flex-wrap gap-2 border-t border-slate-100 bg-white">
+              {chips.map((chip) => (
+                <button
+                  key={chip}
+                  onClick={() => sendMessage(chip)}
+                  disabled={loading}
+                  className="px-3 py-1.5 text-xs font-medium bg-slate-100 hover:bg-teal-100 hover:text-teal-700 border border-slate-200 hover:border-teal-300 rounded-full transition-colors disabled:opacity-50"
+                >
+                  {chip}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Generate button when ready */}
+          {allReady && !generating && (
+            <div className="px-6 py-3 border-t border-slate-100 bg-emerald-50">
+              <button
+                onClick={handleConfirmGenerate}
+                className="w-full bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-xl font-bold text-sm transition-colors"
+              >
+                Generate Contract →
+              </button>
+            </div>
+          )}
+
+          {/* Text input */}
+          <div className="px-6 py-4 border-t border-slate-200 bg-white">
+            <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 focus-within:border-teal-400 focus-within:ring-2 focus-within:ring-teal-100 transition-all">
+              <span className="text-teal-500 text-base shrink-0">✨</span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
+                placeholder="Type or choose an option..."
+                disabled={loading || generating}
+                className="flex-1 bg-transparent text-sm text-slate-800 placeholder-slate-400 focus:outline-none disabled:opacity-50"
+              />
+              <label className="cursor-pointer text-slate-400 hover:text-slate-600 transition-colors shrink-0">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <input type="file" className="sr-only" />
+              </label>
+              <button
+                onClick={() => sendMessage(input)}
+                disabled={!input.trim() || loading || generating}
+                className="shrink-0 text-teal-600 hover:text-teal-700 disabled:text-slate-300 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Right panel — field checklist (slides in after first field) */}
+        <div
+          className={`border-l border-slate-200 bg-white transition-all duration-300 overflow-hidden shrink-0 ${
+            fieldPanelOpen ? 'w-64' : 'w-0'
+          }`}
+        >
+          <div className="w-64 p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-semibold text-slate-700 uppercase tracking-wider">Field Checklist</h3>
+              <button onClick={() => setFieldPanelOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              {ALL_FIELDS.map((field) => {
+                const captured = Boolean(capturedFields[field]);
+                const required = REQUIRED_FIELDS.includes(field);
+                return (
+                  <div key={field} className="flex items-start gap-2">
+                    <span className={`mt-0.5 text-sm ${captured ? 'text-teal-500' : 'text-slate-300'}`}>
+                      {captured ? '✅' : '⬜'}
+                    </span>
+                    <div>
+                      <span className={`text-xs ${captured ? 'text-slate-700 font-medium' : 'text-slate-400'}`}>
+                        {FIELD_LABELS[field]}
+                      </span>
+                      {required && !captured && (
+                        <span className="ml-1 text-[10px] text-slate-300">*</span>
+                      )}
+                      {captured && capturedFields[field] && (
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[160px]">
+                          {capturedFields[field]}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
-
-      {/* Generate Button */}
-      <button
-        onClick={handleGenerate}
-        disabled={loading}
-        className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-4 rounded-xl font-bold text-lg transition-colors shadow-sm"
-      >
-        {loading ? (
-          <span className="flex items-center justify-center gap-2">
-            <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            Generating...
-          </span>
-        ) : (
-          'Generate Contract →'
-        )}
-      </button>
-    </div>
+    </AppShell>
   );
 }

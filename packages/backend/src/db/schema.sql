@@ -56,3 +56,21 @@ CREATE TABLE IF NOT EXISTS contracts (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS contracts_user_idx ON contracts(user_id);
+
+-- Clause Library: single source of truth for all Softway legal language
+CREATE TABLE IF NOT EXISTS clauses (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('non-negotiable', 'flexible', 'optional')),
+  body TEXT NOT NULL,
+  updated_by TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Seed placeholder clauses (no-op on subsequent boots)
+INSERT OR IGNORE INTO clauses (id, name, type, body, updated_by, updated_at) VALUES
+  ('clause-ip', 'IP Ownership', 'non-negotiable', 'All intellectual property created by Softway Solutions under this Agreement shall remain the exclusive property of Client upon full payment of all fees.', 'Chris Pitre', '2026-04-28T00:00:00.000Z'),
+  ('clause-liability', 'Liability Cap', 'non-negotiable', 'In no event shall either party''s total liability exceed the total fees paid or payable under this Agreement in the twelve (12) months preceding the claim.', 'Chris Pitre', '2026-04-24T00:00:00.000Z'),
+  ('clause-payment', 'Payment Terms', 'flexible', 'Client shall pay all undisputed invoices within thirty (30) days of receipt. Late payments shall accrue interest at 1.5% per month.', 'Melissa Grant', '2026-04-20T00:00:00.000Z'),
+  ('clause-confidentiality', 'Confidentiality', 'non-negotiable', 'Each party agrees to maintain in strict confidence all Confidential Information of the other party and not to disclose such information to any third party without prior written consent.', 'Chris Pitre', '2026-04-18T00:00:00.000Z'),
+  ('clause-travel', 'Travel & Expenses', 'optional', 'Client shall reimburse Softway for all pre-approved travel and out-of-pocket expenses incurred in connection with the Services, not to exceed the travel cap set forth in the applicable SOW.', 'Alex Rivera', '2026-04-15T00:00:00.000Z');

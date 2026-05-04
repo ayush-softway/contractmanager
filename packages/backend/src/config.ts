@@ -24,8 +24,8 @@ const schema = z.object({
     .url()
     .default('http://localhost:4000/auth/google/callback'),
 
-  GEMINI_API_KEY: z.string().min(1),
-  GEMINI_MODEL: z.string().default('gemini-2.0-flash'),
+  ANTHROPIC_API_KEY: z.string().min(1),
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
 });
 
 const parsed = schema.safeParse(process.env);

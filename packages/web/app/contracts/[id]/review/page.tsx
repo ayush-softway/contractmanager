@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
-import StepIndicator from '@/components/StepIndicator';
 import LegalLockBadge from '@/components/LegalLockBadge';
 import ClauseCoverage from '@/components/ClauseCoverage';
-import type { Contract, ContractType } from '@cg/shared';
+import AppShell from '@/components/AppShell';
+import type { Contract, ContractType, ChatMessage } from '@cg/shared';
 
 export default function ReviewPage() {
   const params = useParams();
@@ -17,6 +17,14 @@ export default function ReviewPage() {
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [error, setError] = useState('');
 
+  // AI chat state
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
+    { role: 'assistant', content: 'Contract loaded. Ask me to make any changes — e.g. "Change the fee to $120k" or "Extend the timeline by 30 days".' },
+  ]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     api
       .getContract(params.id as string)
@@ -24,6 +32,10 @@ export default function ReviewPage() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
   }, [params.id]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
 
   const handleSendForSignature = async () => {
     setSending(true);
@@ -39,9 +51,25 @@ export default function ReviewPage() {
     }
   };
 
+  const handleChatSend = async () => {
+    const message = chatInput.trim();
+    if (!message || chatLoading) return;
+    setChatInput('');
+    setChatMessages((prev) => [...prev, { role: 'user', content: message }]);
+    setChatLoading(true);
+    try {
+      const result = await api.reviewChat(contract.id, message);
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: result.reply }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, I ran into an error. Please try again.' }]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex items-center justify-center min-h-screen">
         <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -50,7 +78,6 @@ export default function ReviewPage() {
   if (error && !contract) {
     return <div className="p-8 text-center text-red-500">{error}</div>;
   }
-
   if (!contract) return <div className="p-8 text-center text-red-500">Contract not found</div>;
 
   const fieldValues = typeof contract.field_values_json === 'string'
@@ -59,137 +86,170 @@ export default function ReviewPage() {
 
   const contractType = (contract.contract_type || 'msa-sow') as ContractType;
 
+  const typeLabel =
+    contractType === 'msa-sow' ? 'MSA + SOW-01'
+    : contractType === 'sow-standalone' ? 'Standalone SOW'
+    : 'Change Order';
+
   const summaryFields = [
     { label: 'Client', value: fieldValues.client_legal_name },
-    { label: 'Type', value: contractType === 'msa-sow' ? 'MSA + SOW-01' : contractType === 'sow-standalone' ? 'Standalone SOW' : 'Change Order' },
-    { label: 'Value', value: fieldValues.project_fee_usd ? `$${Number(fieldValues.project_fee_usd).toLocaleString()}` : '—' },
+    { label: 'Type', value: typeLabel },
+    { label: 'Value', value: fieldValues.project_fee_usd ? `$${Number(fieldValues.project_fee_usd).toLocaleString()}` : undefined },
     { label: 'Rep', value: fieldValues.softway_rep },
-    { label: 'Date', value: fieldValues.contract_date },
     { label: 'Completion', value: fieldValues.completion_date },
-    { label: 'SOW #', value: fieldValues.sow_number },
     { label: 'Contact', value: fieldValues.client_contact_name },
     { label: 'Email', value: fieldValues.client_contact_email },
     { label: 'Service', value: fieldValues.service_type },
     { label: 'Location', value: fieldValues.location },
     { label: 'Workshops', value: fieldValues.workshop_count },
     { label: 'Attendees', value: fieldValues.attendee_count },
-  ].filter(f => f.value);
+  ].filter((f): f is { label: string; value: string } => Boolean(f.value));
 
   return (
-    <div className="max-w-6xl mx-auto py-8 px-4">
-      <StepIndicator currentStep={3} />
+    <AppShell>
+      <div className="flex flex-col h-[calc(100vh-3rem)]">
+        {/* Top banner */}
+        <LegalLockBadge />
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="mx-6 mt-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
+            {error}
+          </div>
+        )}
+        {sendResult && (
+          <div className="mx-6 mt-2 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2 rounded-lg text-sm font-medium">
+            {sendResult}
+          </div>
+        )}
 
-      {sendResult && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg mb-6 text-sm font-medium">
-          {sendResult}
-        </div>
-      )}
+        {/* Main 3-column layout */}
+        <div className="flex flex-1 min-h-0">
+          {/* Left panel — Contract Details + Clause Checks */}
+          <div className="w-72 shrink-0 border-r border-slate-200 bg-white flex flex-col overflow-y-auto">
+            <div className="p-5 border-b border-slate-100">
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold text-slate-900">Contract Details</h2>
+                {contract.status === 'sent' && (
+                  <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold uppercase">
+                    Sent ✓
+                  </span>
+                )}
+              </div>
+              <dl className="space-y-2.5 mt-3">
+                {summaryFields.map((f) => (
+                  <div key={f.label} className="flex items-start justify-between gap-2">
+                    <dt className="text-xs text-slate-400 shrink-0 w-20">{f.label}</dt>
+                    <dd className="text-xs font-medium text-slate-800 text-right leading-snug">{f.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
 
-      <div className="flex gap-8">
-        {/* Left Column — Contract Summary */}
-        <div className="w-80 flex-shrink-0 space-y-6">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900 mb-1">Review & Send</h1>
-            {contract.status === 'sent' && (
-              <span className="inline-block px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold uppercase">
-                Sent ✓
-              </span>
-            )}
+            <div className="p-5 flex-1">
+              <ClauseCoverage contractType={contractType} />
+            </div>
+
+            <div className="p-4 border-t border-slate-100 space-y-2">
+              <button
+                onClick={() => router.push('/contracts/generate')}
+                className="w-full border border-slate-200 text-slate-700 py-2 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors"
+              >
+                ← Edit Fields
+              </button>
+              <button
+                onClick={handleSendForSignature}
+                disabled={sending || contract.status === 'sent'}
+                className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold text-sm transition-colors"
+              >
+                {sending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending...
+                  </span>
+                ) : contract.status === 'sent' ? 'Sent ✓' : 'Send to DocuSign →'}
+              </button>
+            </div>
           </div>
 
-          {/* Summary Card */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-3">
-            <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Contract Summary</h2>
-            <dl className="space-y-2">
-              {summaryFields.map(f => (
-                <div key={f.label}>
-                  <dt className="text-xs text-slate-400 uppercase">{f.label}</dt>
-                  <dd className="text-sm font-medium text-slate-900">{f.value}</dd>
+          {/* Right panel — Google Doc iframe */}
+          <div className="flex-1 flex flex-col min-w-0 bg-slate-100">
+            <div className="flex-1 overflow-hidden">
+              {contract.drive_file_id === 'demo-mock-id' ? (
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="text-center p-8 border border-slate-200 bg-white shadow-sm rounded-xl max-w-sm">
+                    <span className="text-4xl block mb-4">📄</span>
+                    <h3 className="font-bold text-slate-900 mb-2">Demo Mode Active</h3>
+                    <p className="text-sm text-slate-500">
+                      Google Drive sync is disabled in this demo. In production, the generated {typeLabel} Google Doc would appear here.
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </dl>
-          </div>
-
-          {/* Clause Coverage */}
-          <div className="bg-white border border-slate-200 rounded-xl p-5">
-            <ClauseCoverage contractType={contractType} />
-          </div>
-
-          {/* Action Buttons */}
-          <div className="space-y-3">
-            <button
-              onClick={() => router.push('/contracts/generate')}
-              className="w-full border border-slate-200 text-slate-700 py-2.5 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors"
-            >
-              ← Edit Fields
-            </button>
-            <button
-              onClick={handleSendForSignature}
-              disabled={sending || contract.status === 'sent'}
-              className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2.5 rounded-lg font-bold text-sm transition-colors"
-            >
-              {sending ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Generating PDF and creating envelope...
-                </span>
-              ) : contract.status === 'sent' ? (
-                'Sent ✓'
+              ) : contract.drive_file_id ? (
+                <iframe
+                  src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}
+                  className="w-full h-full border-0"
+                  title="Contract Preview"
+                />
               ) : (
-                'Send to DocuSign →'
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Right Column — Contract Preview */}
-        <div className="flex-1 space-y-4">
-          <LegalLockBadge />
-
-          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-            {contract.drive_file_id === 'demo-mock-id' ? (
-              <div className="w-full h-[700px] flex items-center justify-center bg-slate-50">
-                <div className="text-center p-8 border border-slate-200 bg-white shadow-sm rounded-xl max-w-sm">
-                  <span className="text-4xl block mb-4">📄</span>
-                  <h3 className="font-bold text-slate-900 mb-2">Demo Mode Active</h3>
-                  <p className="text-sm text-slate-500">
-                    Google Drive sync is disabled in this unauthenticated demo. 
-                    In production, the generated {contractType === 'msa-sow' ? 'MSA + SOW-01' : 'Contract'} Google Doc would appear here.
-                  </p>
+                <div className="p-12 text-center text-slate-400">
+                  <p className="font-medium">No preview available</p>
                 </div>
-              </div>
-            ) : contract.drive_file_id ? (
-              <iframe
-                src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}
-                className="w-full h-[700px] border-0"
-                title="Contract Preview"
-              />
-            ) : (
-              <div className="p-12 text-center text-slate-400">
-                <p className="text-lg font-medium">No preview available</p>
-                <p className="text-sm mt-1">The contract document was not generated in Google Drive.</p>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
 
-          {contract.drive_file_id && (
-            <a
-              href={`https://docs.google.com/document/d/${contract.drive_file_id}/edit`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-sm text-teal-600 hover:text-teal-800 font-medium"
-            >
-              📄 Open in Google Docs ↗
-            </a>
-          )}
+            {/* AI Chat — bottom */}
+            <div className="border-t border-slate-200 bg-white">
+              <div className="max-h-40 overflow-y-auto px-4 pt-3 space-y-2" style={{ scrollbarWidth: 'thin' }}>
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`flex gap-2 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {msg.role === 'assistant' && (
+                      <div className="w-5 h-5 rounded-full bg-teal-100 flex items-center justify-center shrink-0 mt-0.5">
+                        <span className="text-[10px]">✨</span>
+                      </div>
+                    )}
+                    <div className={`max-w-[75%] px-3 py-1.5 rounded-xl text-xs leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-teal-600 text-white'
+                        : 'bg-slate-100 text-slate-800'
+                    }`}>
+                      {msg.content}
+                    </div>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="flex gap-2 justify-start">
+                    <div className="w-5 h-5 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+                      <span className="text-[10px]">✨</span>
+                    </div>
+                    <div className="px-3 py-1.5 rounded-xl text-xs bg-slate-100 text-slate-400">Thinking...</div>
+                  </div>
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="flex items-center gap-2 p-3 border-t border-slate-100">
+                <span className="text-teal-500 text-sm">✨</span>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleChatSend()}
+                  placeholder='Make a change... e.g. "Change the fee to $120k"'
+                  className="flex-1 text-sm bg-transparent focus:outline-none text-slate-700 placeholder-slate-400"
+                />
+                <button
+                  onClick={handleChatSend}
+                  disabled={!chatInput.trim() || chatLoading}
+                  className="text-teal-600 hover:text-teal-700 disabled:text-slate-300 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }
