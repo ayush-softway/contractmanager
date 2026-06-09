@@ -1,0 +1,47 @@
+services:
+  # 1. Express Backend Service (Web Service)
+  - type: web
+    name: contract-generator-backend
+    env: node
+    plan: starter # Starter plan is required to attach a persistent disk (volume)
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start --workspace=@cg/backend
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: file:/data/contract-generator.db # SQLite database stored on persistent disk
+      - key: SESSION_SECRET
+        generateValue: true # Generates a random session secret automatically
+      - key: GOOGLE_CLIENT_ID
+        sync: false # Set this in the Render dashboard after creating Google Cloud credentials
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false # Set this in the Render dashboard
+      - key: GOOGLE_REDIRECT_URI
+        sync: false # Set this to https://<your-backend-url>/auth/google/callback
+      - key: WEB_ORIGIN
+        sync: false # Set this to https://<your-frontend-url>
+      - key: ANTHROPIC_API_KEY
+        sync: false # Set this in the Render dashboard
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-6
+      - key: HUBSPOT_API_TOKEN
+        sync: false # Set this in the Render dashboard if HubSpot integration is used
+    disk:
+      name: sqlite-data
+      mountPath: /data
+      sizeGB: 1
+
+  # 2. Next.js Frontend Service (Web Service)
+  - type: web
+    name: contract-generator-web
+    env: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start --workspace=@cg/web
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NEXT_PUBLIC_BACKEND_URL
+        sync: false # Set this to https://<your-backend-url> so the frontend can query the API

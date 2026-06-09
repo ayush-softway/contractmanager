@@ -110,50 +110,71 @@ IN WITNESS WHEREOF, the parties have caused this Contract to be executed and do 
 
 ---
 
-## Statement of Work — SOW-01
+## STATEMENT OF WORK — SOW-01
 
-**Client:** {{client_legal_name}}
-**Client Address:** {{client_office_address}}
-**Client Contact:** {{client_contact_name}} ({{client_contact_email}})
-**Softway Representative:** {{softway_rep}}
-**SOW Effective Date:** {{effective_date}}
-**Target Completion Date:** {{completion_date}}
+This statement of work (SOW) is executed by Softway and {{client_legal_name}} and is subject to the terms and conditions of the Master Services Agreement entered into between Softway and {{client_legal_name}}, effective as of {{effective_date}}.
 
-This Statement of Work is entered into pursuant to the Master Services Agreement dated {{effective_date}} between Softway Solutions Inc. dba Culture+ and {{client_legal_name}}.
+### Background
 
-### Scope of Services
+Softway will partner with {{client_legal_name}} to deliver {{service_type}}. This engagement is designed to create meaningful, lasting impact aligned with {{client_legal_name}}'s organizational goals and priorities.
+
+### Services & Product Inclusions
+
+The following scope applies under this SoW:
 
 {{service_type}}
 
-### Investment
+*Venue, audio visual, event or catering expenses will be the responsibility of {{client_legal_name}} and will be managed outside of this statement of work, unless noted otherwise in the SOW.*
 
-**Total Project Fee:** ${{project_fee_usd}}
+### Timelines
+
+The scope of this engagement must conclude prior to {{completion_date}}. {{client_legal_name}} agrees to give Softway thirty (30) days written notice of intent to suspend or terminate work under this proposal. In the event of Client initiated cancellation or termination, the initial deposit remains strictly non-refundable. Client shall be invoiced for, and obligated to pay for, all work performed and out-of-pocket expenses incurred up to the effective date of termination, including travel expenses for any planned trips.
+
+Should {{client_legal_name}} wish to continue with additional products or services past the end date of this SoW or alter the scope of the project, parties can agree in writing to modify this statement of work at any point in time.
+
+### Project Expenses
+
+A fee of **${{project_fee_usd}}** plus applicable taxes will apply for the services outlined above.
+
+| Invoice Milestone | Amount | Payment Terms |
+|---|---|---|
+| Invoice #1 — Deposit (due upon execution) | Per payment schedule | Net 30 |
+| Invoice #2 — Mid-project | Per payment schedule | Net 30 |
+| Invoice #3 — Final | Per payment schedule | Net 30 |
+| Reimbursable Travel Expenses | At cost | Net 30 |
 
 **Payment Structure:** {{payment_structure}}
 
-All invoices are due within thirty (30) days of receipt. Late payments shall accrue interest at 1.5% per month.
-
-### Travel & Expenses
+All invoices payable Net 30. Project fees will not exceed the above amount without prior {{client_legal_name}} consent and approval (in writing).
 
 **Travel Required:** {{travel_required}}
 
-Client shall reimburse Softway for all pre-approved travel and out-of-pocket expenses incurred in connection with the Services, not to exceed any travel cap set forth herein.
+Travel for this engagement is reimbursable at cost. Softway will provide receipts with invoice.
 
-### Intellectual Property
+**Total Investment: ${{project_fee_usd}}** (plus applicable taxes)
 
-All intellectual property created by Softway Solutions under this Agreement shall remain the exclusive property of Client upon full payment of all fees.
+### Specific Assumptions
 
-### Confidentiality
+- For any additional works outside of this SOW, Softway will provide {{client_legal_name}} with estimated project expenses for review and approval, once approved Softway will issue a change order.
+- Parties will in writing agree to any additional work items prior to commencement of pending additional work. Approval can be in writing or digitally via email.
+- The dates and times for meetings and facilitated sessions will be determined collaboratively. Once agreed and determined, any requests from client to change these dates within 45 days of the agreed upon event date will result in a change order and will incur a change fee, and reimbursable expenses will still be invoiced.
+- Softway reserves the right to modify, edit, add, delete and substitute topics and Course Materials if, in its sole judgment, such change enhances the quality of instruction or end objective of the instruction.
+- Softway makes no promise and, or representation that the services made in the basis of this Statement of Work will lead to higher revenues or profits.
+- Contract rates for delays or changes: All US based labor is billed at $175.00 plus taxes; All India based labor is billed at $100.00 plus taxes.
 
-Each party agrees to maintain in strict confidence all Confidential Information of the other party and not to disclose such information to any third party without prior written consent.
+### Client Dependencies
 
-### Signatures
+- Anticipated timeline is to complete all services prior to {{completion_date}}.
+- Should delays occur, or the need to reschedule a planned session occur, additional cost will be assessed.
+- {{client_legal_name}} is responsible for managing their contracted parties and will be responsible for leading such vendors not included in Softway's scope.
 
-This Statement of Work is incorporated into and governed by the Master Services Agreement above.
+### Signatory Page
+
+IN WITNESS WHEREOF, the parties have caused this Contract to be executed and do each hereby warrant and represent that their respective signatory whose signature appears below has been and is on the date of this Agreement duly authorized by all necessary and appropriate corporate action to exercise this agreement.
 
 | Softway Solutions, Inc. dba Culture+ | {{client_legal_name}} |
 |---|---|
 | By: | By: |
 | Name: {{softway_rep}} | Name: {{client_signatory_name}} |
-| Title: | Title: {{client_signatory_title}} |
+| Title: President | Title: {{client_signatory_title}} |
 | Date: {{signature_date}} | Date: {{signature_date}} |

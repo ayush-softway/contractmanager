@@ -21,6 +21,15 @@ export interface Starter {
 
 export const STARTERS: Starter[] = [
   {
+    slug: 'msa',
+    label: 'Master Services Agreement',
+    description: 'Standalone MSA — framework agreement covering legal protections without an attached SOW.',
+    version: 'v2',
+    active: true,
+    mdFilename: 'msa.md',
+    docxFilename: 'msa.docx',
+  },
+  {
     slug: 'msa-sow',
     label: 'MSA + SOW-01 (New Client)',
     description: 'New client — full MSA + SOW merged, all 6 legal protections.',

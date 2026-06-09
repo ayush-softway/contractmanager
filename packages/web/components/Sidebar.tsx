@@ -34,35 +34,46 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen = false, onClose }: { isOpen?: boolean; onClose?: () => void }) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-56 shrink-0 border-r border-slate-200 bg-white flex flex-col min-h-screen">
-      <div className="px-4 py-5 border-b border-slate-100">
-        <span className="text-base font-bold tracking-tight text-slate-900">
-          Softway <span className="text-teal-600">ContractGen</span>
-        </span>
-      </div>
-      <nav className="flex-1 px-2 py-4 space-y-0.5">
-        {navItems.map((item) => {
-          const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                active
-                  ? 'bg-teal-50 text-teal-700'
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-              }`}
-            >
-              {item.icon}
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+    <>
+      {isOpen && (
+        <div className="fixed inset-0 bg-black/20 z-40 transition-opacity" onClick={onClose} />
+      )}
+      <aside className={`fixed top-0 left-0 bottom-0 z-50 w-64 bg-white shadow-xl flex flex-col min-h-screen transition-transform duration-200 ease-in-out ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="px-4 py-4 border-b border-slate-100 flex items-center justify-between">
+          <span className="text-base font-bold tracking-tight text-slate-900 ml-2">
+            Softway <span className="text-teal-600">ContractGen</span>
+          </span>
+          {onClose && (
+            <button onClick={onClose} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          )}
+        </div>
+        <nav className="flex-1 px-2 py-4 space-y-0.5">
+          {navItems.map((item) => {
+            const active = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href));
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={onClose}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                  active
+                    ? 'bg-teal-50 text-teal-700'
+                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+    </>
   );
 }

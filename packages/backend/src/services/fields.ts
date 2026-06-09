@@ -15,12 +15,12 @@ export const FIELD_DEFS: FieldDef[] = [
   { key: 'project_fee_usd',       label: 'Project Fee (USD)',      required: true,  types: ['*'], format: 'currency' },
   { key: 'completion_date',       label: 'Completion Date',        required: true,  types: ['*'], format: 'date' },
   { key: 'service_type',          label: 'Service Description',    required: true,  types: ['*'], format: 'text' },
-  // msa-sow only
-  { key: 'effective_date',         label: 'MSA Effective Date',     required: true,  types: ['msa-sow'], format: 'date' },
-  { key: 'client_contact_name',    label: 'Client Contact Name',    required: true,  types: ['msa-sow'], format: 'text' },
-  { key: 'client_contact_email',   label: 'Client Contact Email',   required: true,  types: ['msa-sow'], format: 'email' },
-  { key: 'client_signatory_name',  label: 'Client Signatory Name',  required: true,  types: ['msa-sow'], format: 'text' },
-  { key: 'client_signatory_title', label: 'Client Signatory Title', required: true,  types: ['msa-sow'], format: 'text' },
+  // msa and msa-sow
+  { key: 'effective_date',         label: 'MSA Effective Date',     required: true,  types: ['msa', 'msa-sow'], format: 'date' },
+  { key: 'client_contact_name',    label: 'Client Contact Name',    required: true,  types: ['msa', 'msa-sow'], format: 'text' },
+  { key: 'client_contact_email',   label: 'Client Contact Email',   required: true,  types: ['msa', 'msa-sow'], format: 'email' },
+  { key: 'client_signatory_name',  label: 'Client Signatory Name',  required: true,  types: ['msa', 'msa-sow'], format: 'text' },
+  { key: 'client_signatory_title', label: 'Client Signatory Title', required: true,  types: ['msa', 'msa-sow'], format: 'text' },
   // sow-standalone only
   { key: 'msa_date',    label: 'Existing MSA Date', required: true, types: ['sow-standalone'], format: 'date' },
   { key: 'sow_number',  label: 'SOW Number',         required: true, types: ['sow-standalone', 'change-order'], format: 'text' },

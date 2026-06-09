@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import type { User, Contract } from '@cg/shared';
 import AppShell from '@/components/AppShell';
 import TemplateGallery from '@/components/TemplateGallery';
+import ClientDocUploadModal from '@/components/ClientDocUploadModal';
 
 const statusColors: Record<string, string> = {
   draft: 'bg-slate-100 text-slate-600',
@@ -31,6 +32,7 @@ export default function HomePage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [showGallery, setShowGallery] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -59,123 +61,130 @@ export default function HomePage() {
   return (
     <AppShell>
       {showGallery && <TemplateGallery onClose={() => setShowGallery(false)} />}
-      <div className="px-8 py-8 max-w-5xl">
-        {/* Start Something New */}
-        <section className="mb-10">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">
-            Start Something New
-          </h2>
-          <div className="flex items-start gap-4 flex-wrap">
-            {/* New Contract card */}
-            <Link
-              href="/contracts/generate"
-              className="flex flex-col items-center justify-center w-36 h-44 border-2 border-dashed border-slate-300 rounded-xl bg-white hover:border-teal-400 hover:bg-teal-50 transition-colors group cursor-pointer"
-            >
-              <div className="w-10 h-10 rounded-full bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center mb-3 transition-colors">
-                <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+      <ClientDocUploadModal open={uploadOpen} onClose={() => setUploadOpen(false)} />
+
+      {/* Top Gray Band - Start a new document */}
+      <div className="bg-[#f1f3f4] pt-8 pb-10">
+        <div className="max-w-[1000px] mx-auto px-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base text-slate-800">Start a new document</h2>
+            <div className="flex items-center gap-3 text-sm text-slate-600">
+               <button
+                 onClick={() => setUploadOpen(true)}
+                 className="flex items-center gap-1.5 border border-slate-300 hover:border-slate-400 hover:bg-white px-3 py-1.5 rounded text-slate-600 hover:text-slate-800 transition-all text-sm font-medium"
+               >
+                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                 </svg>
+                 Upload Client Document
+               </button>
+               <button
+                 onClick={() => setShowGallery(true)}
+                 className="hover:bg-slate-200 px-3 py-1.5 rounded flex items-center gap-1 transition-colors"
+               >
+                  Template gallery
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>
+               </button>
+               <button className="p-1.5 hover:bg-slate-200 rounded-full"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg></button>
+            </div>
+          </div>
+
+          <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
+            {/* Blank Document */}
+            <div className="shrink-0 group cursor-pointer w-[140px]" onClick={() => router.push('/contracts/generate')}>
+              <div className="h-[180px] bg-white border border-slate-200 rounded-sm hover:border-blue-500 transition-colors flex items-center justify-center mb-2">
+                <svg className="w-12 h-12" viewBox="0 0 36 36">
+                  <path fill="#34A853" d="M16 16v14h4V20z" />
+                  <path fill="#4285F4" d="M30 16H20l-4 4h14z" />
+                  <path fill="#FBBC05" d="M6 16v4h10l4-4z" />
+                  <path fill="#EA4335" d="M20 16V6h-4v14z" />
+                  <path fill="none" d="M0 0h36v36H0z" />
                 </svg>
               </div>
-              <span className="text-xs font-semibold text-slate-700 group-hover:text-teal-700 text-center leading-tight px-2">
-                New Contract
-              </span>
-              <span className="text-[10px] text-slate-400 mt-1 text-center px-2">
-                Create from scratch
-              </span>
-            </Link>
-
-            {/* Template Gallery panel */}
-            <div className="flex-1 min-w-72 bg-white border border-slate-200 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-slate-900">Template Gallery</h3>
-                <button
-                  onClick={() => setShowGallery(true)}
-                  className="text-xs text-teal-600 hover:text-teal-700 font-medium"
-                >
-                  View all →
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2 mb-3">
-                {['NDA', 'MSA + SOW', 'Standalone SOW', 'Change Order', 'Employment'].map((label) => (
-                  <button
-                    key={label}
-                    onClick={() => {
-                      const slug = label.toLowerCase().replace(/\s+\+\s+/g, '-').replace(/\s+/g, '-');
-                      router.push(`/contracts/generate?template=${slug}`);
-                    }}
-                    className="px-3 py-1.5 text-xs font-medium bg-slate-50 border border-slate-200 rounded-lg text-slate-700 hover:border-teal-400 hover:bg-teal-50 hover:text-teal-700 transition-colors"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <p className="text-sm font-medium text-slate-800">Blank Contract</p>
             </div>
 
-            {/* Upload Client Document */}
-            <Link
-              href="/upload"
-              className="flex flex-col items-center justify-center w-36 h-44 border border-slate-200 rounded-xl bg-white hover:border-teal-400 hover:bg-slate-50 transition-colors group"
-            >
-              <div className="w-10 h-10 rounded-full bg-slate-100 group-hover:bg-teal-100 flex items-center justify-center mb-3 transition-colors">
-                <svg className="w-5 h-5 text-slate-500 group-hover:text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                </svg>
+            {/* Templates */}
+            {[
+                { label: 'MSA', slug: 'msa', color: 'bg-blue-100' },
+                { label: 'MSA + SOW', slug: 'msa-sow', color: 'bg-indigo-100' },
+                { label: 'Standalone SOW', slug: 'sow-standalone', color: 'bg-teal-100' },
+                { label: 'Change Order', slug: 'change-order', color: 'bg-amber-100' },
+            ].map((tpl) => (
+              <div key={tpl.slug} className="shrink-0 group cursor-pointer w-[140px]" onClick={() => router.push(`/contracts/generate?template=${tpl.slug}`)}>
+                <div className="h-[180px] bg-white border border-slate-200 rounded-sm hover:border-blue-500 transition-colors mb-2 overflow-hidden flex flex-col relative">
+                  <div className={`h-[70px] ${tpl.color} flex shrink-0 border-b border-slate-100`} />
+                  <div className="flex-1 p-3">
+                     <div className="h-1.5 bg-slate-100 rounded mb-2 w-3/4" />
+                     <div className="h-1.5 bg-slate-100 rounded mb-2 w-full" />
+                     <div className="h-1.5 bg-slate-100 rounded mb-2 w-5/6" />
+                     <div className="h-1.5 bg-slate-100 rounded mb-2 w-full" />
+                     <div className="h-1.5 bg-slate-100 rounded mb-2 w-4/5" />
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-slate-800">{tpl.label}</p>
+                <p className="text-xs text-slate-500">Softway Template</p>
               </div>
-              <span className="text-xs font-semibold text-slate-700 group-hover:text-teal-700 text-center leading-tight px-2">
-                Upload Client Document
-              </span>
-              <span className="text-[10px] text-slate-400 mt-1 text-center px-2">
-                Redlines or client MSA
-              </span>
-            </Link>
+            ))}
           </div>
-        </section>
+        </div>
+      </div>
 
-        {/* Recent Contracts */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Recent Contracts
-            </h2>
-            <Link href="/vault" className="text-xs text-teal-600 hover:text-teal-700 font-medium">
-              View all →
-            </Link>
+      {/* Bottom White Band - Recent documents */}
+      <div className="bg-white py-8 min-h-screen">
+        <div className="max-w-[1000px] mx-auto px-6">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-base font-medium text-slate-800">Recent documents</h2>
+            <div className="flex items-center gap-3">
+              <button className="flex items-center gap-2 text-sm text-slate-700 hover:bg-slate-100 px-3 py-1.5 rounded transition-colors">
+                Owned by anyone
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              </button>
+              <div className="flex items-center gap-1">
+                <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg></button>
+                <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" /></svg></button>
+                <button className="p-2 hover:bg-slate-100 rounded-full text-slate-600"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg></button>
+              </div>
+            </div>
           </div>
 
           {contracts.length === 0 ? (
-            <div className="text-center py-16 text-slate-400 border border-dashed border-slate-200 rounded-xl bg-white">
-              <p className="text-sm font-medium">No contracts yet</p>
-              <p className="text-xs mt-1">Generate your first contract above.</p>
+            <div className="text-center py-16 text-slate-400">
+              <p className="text-sm">No contracts yet. Start a new document above.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {contracts.slice(0, 8).map((c) => (
-                <Link
-                  key={c.id}
-                  href={`/contracts/${c.id}/review`}
-                  className="bg-white border border-slate-200 rounded-xl p-4 hover:border-teal-300 hover:shadow-sm transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="w-8 h-10 bg-slate-100 rounded flex items-center justify-center group-hover:bg-teal-50">
-                      <svg className="w-4 h-5 text-slate-400 group-hover:text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide ${statusColors[c.status] ?? 'bg-slate-100 text-slate-600'}`}>
-                      {statusLabels[c.status] ?? c.status}
-                    </span>
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {contracts.slice(0, 10).map((c) => (
+                <div key={c.id} className="group flex flex-col w-full h-64 border border-slate-200 rounded-sm bg-white hover:border-blue-500 hover:shadow-sm transition-all cursor-pointer overflow-hidden relative" onClick={() => router.push(`/contracts/${c.id}/review`)}>
+                  <div className="h-[180px] bg-slate-50 border-b border-slate-200 flex flex-col p-4 overflow-hidden shrink-0">
+                     <div className="text-[6px] text-slate-300 space-y-1.5">
+                        <div className="h-1.5 bg-slate-200 w-full mb-2"></div>
+                        <div className="h-1.5 bg-slate-200 w-5/6 mb-2"></div>
+                        <div className="h-1.5 bg-slate-200 w-full mb-2"></div>
+                        <div className="h-1.5 bg-slate-200 w-3/4 mb-2"></div>
+                        <div className="h-1.5 bg-slate-200 w-full mb-2"></div>
+                        <div className="h-1.5 bg-slate-200 w-full mb-2"></div>
+                     </div>
                   </div>
-                  <p className="text-xs font-semibold text-slate-800 leading-snug line-clamp-2 mb-1">
-                    {c.title}
-                  </p>
-                  <p className="text-[10px] text-slate-400">
-                    {new Date(c.updatedAt ?? c.createdAt).toLocaleDateString()}
-                  </p>
-                </Link>
+                  <div className="flex-1 p-3 flex flex-col justify-center">
+                    <p className="text-[13px] font-medium text-slate-800 leading-snug line-clamp-1 mb-1" title={c.title}>
+                      {c.title}
+                    </p>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500">
+                      <div className="flex items-center gap-2">
+                        <div className="w-4 h-4 bg-teal-600 rounded-[3px] text-white flex items-center justify-center font-bold text-[10px]">C</div>
+                        <span>Opened {new Date(c.updatedAt ?? c.createdAt).toLocaleDateString()}</span>
+                      </div>
+                      <button className="p-1 hover:bg-slate-100 rounded-full opacity-0 group-hover:opacity-100 transition-opacity">
+                         <svg className="w-4 h-4 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
           )}
-        </section>
+        </div>
       </div>
     </AppShell>
   );

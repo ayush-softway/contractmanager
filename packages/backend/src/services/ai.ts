@@ -53,6 +53,10 @@ const IntakeOutputSchema = z.object({
 const ReviewOutputSchema = z.object({
   reply: z.string(),
   patch: z.object({ field: z.string(), newValue: z.string() }).optional(),
+  clauseAction: z.union([
+    z.object({ type: z.literal('add'), name: z.string(), body: z.string() }),
+    z.object({ type: z.literal('remove'), name: z.string() }),
+  ]).optional(),
   edited: z.boolean().optional(),
 });
 
@@ -93,8 +97,26 @@ function extractText(response: Anthropic.Message): string {
 
 function parseJson<T>(text: string, schema: z.ZodType<T>): T | null {
   try {
-    const result = schema.safeParse(JSON.parse(text));
-    return result.success ? result.data : null;
+    // Try fenced block first (```json ... ```)
+    const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fenceMatch?.[1]?.trim() ?? text.trim();
+
+    // Fall back to extracting the outermost { ... } or [ ... ] if candidate doesn't parse
+    const tryParse = (s: string) => {
+      const r = schema.safeParse(JSON.parse(s));
+      return r.success ? r.data : null;
+    };
+
+    const direct = tryParse(candidate);
+    if (direct) return direct;
+
+    // Extract first JSON object or array from anywhere in the text
+    const objMatch = candidate.match(/(\{[\s\S]*\})/);
+    if (objMatch?.[1]) {
+      const r = tryParse(objMatch[1]);
+      if (r) return r;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -104,13 +126,18 @@ function parseJson<T>(text: string, schema: z.ZodType<T>): T | null {
 // System prompts
 // --------------------------------------------------------------------------
 
-const INTAKE_SYSTEM = `You are ContractGen, an AI assistant helping Softway Solutions build contracts.
-Your job is to collect the required fields for a contract through natural conversation.
+const INTAKE_SYSTEM = `You are ContractGen, an AI assistant helping Softway Solutions build contracts efficiently.
+Your job is to collect required contract fields through fast, natural conversation — like a smart colleague, not a form.
 
-Supported contract types: msa-sow, sow-standalone, change-order.
+Supported contract types: msa, msa-sow, sow-standalone, change-order.
+- msa: Standalone Master Services Agreement (no SOW attached)
+- msa-sow: Full MSA + Statement of Work for a new client
+- sow-standalone: Standalone SOW for a repeat client with an existing MSA
+- change-order: Scope or pricing update to an existing SOW
 Do NOT offer or accept nda or employment-contract — those are not supported.
 
 Required fields for ALL types:
+- contract_type: One of [msa, msa-sow, sow-standalone, change-order]
 - client_legal_name: Full legal name of the client company
 - client_office_address: Client's registered office address
 - softway_rep: Softway account representative name
@@ -118,7 +145,7 @@ Required fields for ALL types:
 - completion_date: Project completion date (YYYY-MM-DD format)
 - service_type: Description of services being provided
 
-Additional required fields for msa-sow:
+Additional required fields for msa and msa-sow:
 - effective_date: MSA effective date (YYYY-MM-DD)
 - client_contact_name: Primary contact person name
 - client_contact_email: Primary contact email
@@ -134,34 +161,46 @@ Additional required fields for change-order:
 - change_description: Description of what is changing
 - original_fee_usd: Original project fee (numbers only, no $ sign)
 
-Optional fields (collect if mentioned):
-- payment_structure: Payment terms (e.g. "50% on signing, 50% on completion, Net 30")
-- location: Location where services will be delivered
-- travel_required: Whether travel is required (Yes or No)
-- travel_cap: Travel expense cap in USD (numbers only)
-- workshop_count: Number of workshops
-- attendee_count: Expected number of attendees
-- facilitator_count: Number of facilitators
-- duration_hrs: Duration per workshop in hours
-- signature_date: Date of signing (YYYY-MM-DD)
+Optional fields (capture if volunteered — never ask for these explicitly):
+- payment_structure, location, travel_required, travel_cap, workshop_count,
+  attendee_count, facilitator_count, duration_hrs, signature_date
 
-Rules:
-1. Ask ONE question at a time — never a form
-2. Confirm extracted values before moving on
-3. When the user pastes raw text, extract all available fields from it and confirm each
-4. Use option chips notation for bounded answers: [CHIPS: option1 | option2 | option3] at the end of your message
-5. When all required fields for the selected contract type are collected, say "Looks good — ready to generate your contract?" and set ready=true
-6. Respond ONLY in JSON: { "reply": "...", "fields": { "field_name": "value" }, "ready": false }
-7. Only include fields in "fields" that were newly confirmed in this turn
-8. All dates must be YYYY-MM-DD format
-9. project_fee_usd and original_fee_usd: numbers only, no $ or commas`;
+Conversation strategy — move fast:
+1. Ask for 2–4 related fields per message, grouped by theme. Natural groupings:
+   - Client identity: client_legal_name + client_office_address (ask together)
+   - Engagement: service_type + project_fee_usd + completion_date (ask together)
+   - Signing: client_contact_name + client_contact_email + client_signatory_name + client_signatory_title (ask together)
+2. When the user provides a block of text or data, extract EVERY field it contains in one pass — do not ask for fields that were just provided.
+3. After any import (HubSpot, Drive, pasted text), acknowledge what was captured and attempt to deduce the contract_type from the context (e.g., if there's a new client, it's likely msa-sow). Ask ONLY for what is strictly still missing. Do NOT make conversational small talk.
+4. Use [CHIPS: option1 | option2 | option3] at the end of a message whenever the answer is one of a known short list. Specific rules:
+   - If asking for contract_type: [CHIPS: New client — MSA + SOW | Repeat client — SOW only | MSA only | Change Order]
+   - If asking for service_type: [CHIPS: Culture & Change | Leadership Development | Digital Transformation | Strategy Consulting | Custom (describe below)]
+   - If asking about travel: [CHIPS: Yes — travel required | No — remote only]
+   - If asking about payment_structure: [CHIPS: 50% upfront / 50% on delivery | Milestone-based | Net-30 | Monthly retainer]
+   - Do NOT emit CHIPS for free-text fields: names, addresses, fees, dates, emails, descriptions.
+5. The moment all required fields for the contract type are present, immediately set ready=true and say "All set — ready to generate your contract!" Do NOT do a summary or ask for confirmation.
+6. If the user gives partial info in a message, extract what's there and ask for the rest of that group in the same reply.
+
+Output — always respond in JSON only:
+{ "reply": "...", "fields": { "field_name": "value" }, "ready": false }
+- Only include fields in "fields" that were newly captured in this turn
+- All dates must be YYYY-MM-DD format
+- project_fee_usd and original_fee_usd: numbers only, no $ or commas`;
 
 const REVIEW_SYSTEM = `You are ContractGen's contract assistant. You help users review and edit their contract.
 The contract's current field values are provided as key: value pairs.
 
-For edit commands (change fee, update timeline, extend deadline, modify name, etc.):
+For field edit commands (change fee, update timeline, extend deadline, modify name, etc.):
 - Identify which field the user wants to change and the new value
 - Reply: { "reply": "Done — updated the fee to $120,000.", "patch": { "field": "project_fee_usd", "newValue": "120000" }, "edited": true }
+
+For ADD CLAUSE commands ("add a force majeure clause", "add a GDPR clause", "include a data processing section", etc.):
+- Write the full professional clause text for the named clause in Softway's voice
+- Reply: { "reply": "Added the Force Majeure clause to your contract.", "clauseAction": { "type": "add", "name": "Force Majeure", "body": "Full clause text here..." }, "edited": true }
+
+For REMOVE CLAUSE commands ("remove the non-solicitation clause", "take out the travel clause", "delete the IP section", etc.):
+- Identify the clause name to remove
+- Reply: { "reply": "Removed the Non-Solicitation clause.", "clauseAction": { "type": "remove", "name": "Non-Solicitation" }, "edited": true }
 
 For questions about the contract:
 - Reply: { "reply": "...", "edited": false }
@@ -174,6 +213,7 @@ change_description, original_fee_usd, client_signatory_name, client_signatory_ti
 Rules:
 - project_fee_usd and original_fee_usd: numbers only, no $ or commas
 - dates: YYYY-MM-DD format
+- Clause body text must be complete, professional legal language — not a placeholder
 - Keep replies short and direct
 - Always return valid JSON`;
 
@@ -200,9 +240,23 @@ Return JSON:
 export async function intakeChat(
   history: ChatMessage[],
   message: string,
+  capturedFields?: Record<string, string>,
 ): Promise<{ reply: string; fields: Record<string, string>; ready: boolean }> {
   try {
+    // Prepend confirmed fields as context so the AI never re-asks them
+    const prefixMessages: Anthropic.MessageParam[] = [];
+    if (capturedFields && Object.keys(capturedFields).length > 0) {
+      const fieldList = Object.entries(capturedFields)
+        .map(([k, v]) => `${k}="${v}"`)
+        .join(', ');
+      prefixMessages.push(
+        { role: 'user', content: `[ALREADY CONFIRMED — DO NOT ASK AGAIN]: ${fieldList}. Skip these fields completely and ask only for the remaining required fields.` },
+        { role: 'assistant', content: `Understood. I have noted the confirmed fields and will not ask about them again.` },
+      );
+    }
+
     const messages: Anthropic.MessageParam[] = [
+      ...prefixMessages,
       ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: message },
     ];
@@ -226,12 +280,12 @@ export async function intakeChat(
 export async function reviewChat(
   fields: Record<string, string>,
   message: string,
-): Promise<{ reply: string; patch?: { field: string; newValue: string }; edited: boolean }> {
+): Promise<{ reply: string; patch?: { field: string; newValue: string }; clauseAction?: { type: 'add'; name: string; body: string } | { type: 'remove'; name: string }; edited: boolean }> {
   try {
     const fieldContext = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: cachedSystem(REVIEW_SYSTEM),
       messages: [
         {
@@ -243,7 +297,7 @@ export async function reviewChat(
 
     const text = extractText(response);
     const parsed = parseJson(text, ReviewOutputSchema);
-    if (parsed) return { reply: parsed.reply, patch: parsed.patch, edited: parsed.edited ?? false };
+    if (parsed) return { reply: parsed.reply, patch: parsed.patch, clauseAction: parsed.clauseAction, edited: parsed.edited ?? false };
     return { reply: text, edited: false };
   } catch (err) {
     handleAnthropicError(err);
@@ -267,17 +321,39 @@ export async function verifyClauseCoverage(
   return results;
 }
 
+export async function extractFieldsFromText(
+  text: string,
+): Promise<Record<string, string>> {
+  try {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system: cachedSystem(INTAKE_SYSTEM),
+      messages: [
+        {
+          role: 'user',
+          content: `Extract all available contract fields from the following document text. Return as many fields as you can find. Set ready=false.\n\n${text.slice(0, 6000)}`,
+        },
+      ],
+    });
+    const text2 = extractText(response);
+    const parsed = parseJson(text2, IntakeOutputSchema);
+    return parsed?.fields ?? {};
+  } catch (err) {
+    handleAnthropicError(err);
+  }
+}
+
 export async function analyzeRedlines(docText: string): Promise<RedlineClause[]> {
   try {
     const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 8000,
-      thinking: { type: 'enabled', budget_tokens: 5000 },
-      system: cachedSystem(REDLINE_SYSTEM),
+      max_tokens: 4096,
+      system: REDLINE_SYSTEM,
       messages: [
         {
           role: 'user',
-          content: `Analyse this redlined contract and identify every modified clause:\n\n${docText.slice(0, 8000)}`,
+          content: `Analyse this redlined contract and identify every modified clause:\n\n${docText.slice(0, 12000)}`,
         },
       ],
     });
@@ -297,24 +373,49 @@ export async function analyzeRedlines(docText: string): Promise<RedlineClause[]>
   }
 }
 
+export async function uploadChat(
+  journey: 'j3a' | 'j3b',
+  context: object,
+  question: string,
+): Promise<{ reply: string }> {
+  const systemText = journey === 'j3a'
+    ? `You are a contract attorney helping resolve client redlines on a Softway Solutions contract. Answer questions about the flagged clauses concisely and in plain English.`
+    : `You are a contract attorney helping Softway Solutions navigate a client's MSA. Answer questions about the identified risk flags concisely and in plain English.`;
+
+  const contextText = JSON.stringify(context, null, 2);
+
+  try {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 1024,
+      system: systemText,
+      messages: [
+        { role: 'user', content: `Document analysis context:\n${contextText}\n\nQuestion: ${question}` },
+      ],
+    });
+    const text = extractText(response);
+    return { reply: text };
+  } catch (err) {
+    handleAnthropicError(err);
+  }
+}
+
 export async function analyzeClientMSA(
   docText: string,
 ): Promise<{ risks: RiskFlag[]; sowDraft: string }> {
   try {
-    const stream = client.messages.stream({
+    const response = await client.messages.create({
       model: MODEL,
-      max_tokens: 16000,
-      thinking: { type: 'enabled', budget_tokens: 8000 },
-      system: cachedSystem(CLIENT_MSA_SYSTEM),
+      max_tokens: 4096,
+      system: CLIENT_MSA_SYSTEM,
       messages: [
         {
           role: 'user',
-          content: `Client MSA to analyse:\n\n${docText.slice(0, 8000)}`,
+          content: `Client MSA to analyse:\n\n${docText.slice(0, 12000)}`,
         },
       ],
     });
 
-    const response = await stream.finalMessage();
     const text = extractText(response);
     const parsed = parseJson(text, MSAOutputSchema);
     if (parsed) return parsed;

@@ -18,6 +18,7 @@ export default function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
+  const [showSendModal, setShowSendModal] = useState(false);
   const [error, setError] = useState('');
 
   // Clause checks (Phase 3)
@@ -63,11 +64,12 @@ export default function ReviewPage() {
   }, [chatMessages]);
 
   const handleSendForSignature = async () => {
+    setShowSendModal(false);
     setSending(true);
     setError('');
     try {
       const result = await api.sendForSignature(contract.id);
-      setSendResult(result.message);
+      setSendResult(result.message ?? 'Envelope sent successfully.');
       setContract({ ...contract, status: 'sent' });
     } catch (err: any) {
       setError(err.message || 'Failed to send for signature.');
@@ -124,7 +126,8 @@ export default function ReviewPage() {
   const contractType = (contract.contract_type || 'msa-sow') as ContractType;
 
   const typeLabel =
-    contractType === 'msa-sow' ? 'MSA + SOW-01'
+    contractType === 'msa' ? 'Master Services Agreement'
+    : contractType === 'msa-sow' ? 'MSA + SOW-01'
     : contractType === 'sow-standalone' ? 'Standalone SOW'
     : 'Change Order';
 
@@ -190,6 +193,11 @@ export default function ReviewPage() {
             </div>
 
             <div className="p-4 border-t border-slate-100 space-y-2">
+              {!allClausesPass && Object.keys(clauseChecks).length > 0 && (
+                <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 text-center">
+                  ⚠️ Some clause checks need review
+                </p>
+              )}
               <button
                 onClick={() => router.push('/contracts/generate')}
                 className="w-full border border-slate-200 text-slate-700 py-2 rounded-lg font-medium text-sm hover:bg-slate-50 transition-colors"
@@ -197,9 +205,8 @@ export default function ReviewPage() {
                 ← Edit Fields
               </button>
               <button
-                onClick={handleSendForSignature}
-                disabled={sending || contract.status === 'sent' || !allClausesPass}
-                title={!allClausesPass ? 'All clause checks must pass before sending' : undefined}
+                onClick={() => setShowSendModal(true)}
+                disabled={sending || contract.status === 'sent'}
                 className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 {sending ? (
@@ -217,7 +224,13 @@ export default function ReviewPage() {
             <div className="flex-1 overflow-hidden flex flex-col">
               {contract.drive_file_id === 'demo-mock-id' ? (
                 renderedHtml ? (
-                  <ContractDoc html={renderedHtml} highlightField={lastPatchedField} />
+                  <ContractDoc
+                  html={renderedHtml}
+                  highlightField={lastPatchedField}
+                  title={contract.title}
+                  contractId={contract.id}
+                  onHtmlChange={(html) => setRenderedHtml(html)}
+                />
                 ) : (
                   <div className="flex items-center justify-center h-full text-slate-400 text-sm">
                     Generating preview...
@@ -289,6 +302,57 @@ export default function ReviewPage() {
           </div>
         </div>
       </div>
+      {/* DocuSign send confirmation modal */}
+      {showSendModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-200">
+              <h2 className="text-base font-semibold text-slate-900">Send for Signature</h2>
+              <p className="text-sm text-slate-500 mt-1">Review the envelope details before sending.</p>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                <div className="flex items-start gap-3">
+                  <span className="text-lg">📧</span>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium">Sending to</p>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {fieldValues.client_contact_name || 'Client Signer'}
+                    </p>
+                    <p className="text-sm text-teal-700">
+                      {fieldValues.client_contact_email || 'signer@example.com'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <span className="text-lg">📄</span>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium">Document</p>
+                    <p className="text-sm font-semibold text-slate-900">{contract.title}</p>
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 text-center">
+                A signature request will be sent via DocuSign.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowSendModal(false)}
+                className="flex-1 border border-slate-200 text-slate-700 py-2.5 rounded-xl font-medium text-sm hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendForSignature}
+                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
+              >
+                Send →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

@@ -26,6 +26,8 @@ const schema = z.object({
 
   ANTHROPIC_API_KEY: z.string().min(1),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-6'),
+
+  HUBSPOT_API_TOKEN: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

@@ -47,6 +47,17 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ input }),
     }),
+  importFromDriveFile: (fileId: string) =>
+    req<ImportResult>('/import/detect', {
+      method: 'POST',
+      body: JSON.stringify({ fileId }),
+    }),
+  searchHubSpotDeals: (q: string) =>
+    req<{ deals: { dealId: string; dealName: string; amount: string; stage: string }[] }>(
+      `/import/hubspot/search?q=${encodeURIComponent(q)}`,
+    ),
+  listDriveFiles: () =>
+    req<{ files: { id: string; name: string; modifiedTime: string }[] }>('/import/drive/files'),
 
   // Starters catalog (no auth needed)
   listStarters: () => req<{ starters: StarterTemplate[] }>('/contracts/starters'),
@@ -54,6 +65,13 @@ export const api = {
   // Field definitions for a contract type (no auth needed)
   listFields: (contractType: string) =>
     req<{ fields: FieldDef[] }>(`/contracts/fields?type=${contractType}`),
+
+  // Draft auto-save during intake
+  saveDraft: (payload: { contractType: string; fields: Record<string, string>; draftId?: string }) =>
+    req<{ contractId: string }>('/contracts/draft', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
 
   // Contract generation
   generateContract: (payload: GenerateContractPayload) =>
@@ -87,8 +105,22 @@ export const api = {
       body: JSON.stringify({ contractId, message }),
     }),
 
-  // Upload — analyze client document
-  analyzeUpload: (payload: { text: string; driveFileId?: string }) =>
+  // Import — upload a file (PDF/DOCX) to extract contract fields
+  importFile: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE}/import/file`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+      return res.json() as Promise<import('@cg/shared').ImportResult>;
+    });
+  },
+
+  // Upload — analyze client document (J3A redlines or J3B client MSA)
+  analyzeUpload: (payload: { text: string; driveFileId?: string; journey?: 'j3a' | 'j3b' }) =>
     req<UploadAnalysis>('/upload/analyze', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -100,6 +132,41 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  // Upload — finalize J3A (create contract from resolved redlines)
+  finalizeJ3A: (payload: { resolutions: Record<string, 'accepted' | 'rejected' | 'countered'>; clauses?: unknown[]; title?: string }) =>
+    req<{ contractId: string }>('/upload/j3a/finalize', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Upload — finalize J3B (create SOW contract from MSA analysis)
+  finalizeJ3B: (payload: { sowDraft: string; risks?: unknown[]; clientName?: string }) =>
+    req<{ contractId: string }>('/upload/j3b/finalize', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  // Upload — context-aware chat for J3A/J3B review pages
+  uploadChat: (journey: 'j3a' | 'j3b', context: unknown, question: string) =>
+    req<{ reply: string }>('/ai/upload-chat', {
+      method: 'POST',
+      body: JSON.stringify({ journey, context, question }),
+    }),
+
+  // Import — extract raw text from PDF/DOCX/HTML (no AI, for upload modal)
+  extractText: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return fetch(`${BASE}/import/extract-text`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
+    }).then(async (res) => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}: ${await res.text()}`);
+      return res.json() as Promise<{ text: string }>;
+    });
+  },
 
   // Admin — clause library
   listClauses: () => req<{ clauses: Clause[] }>('/admin/clauses'),

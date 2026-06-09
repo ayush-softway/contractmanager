@@ -7,10 +7,11 @@
 
 import { Router } from 'express';
 import { requireAuth } from '../auth/session.js';
-import { generateContractV2, getContract, listContracts, updateContractStatus, ValidationError } from '../services/contracts.js';
+import { generateContractV2, getContract, listContracts, updateContractStatus, upsertDraft, ValidationError } from '../services/contracts.js';
 import { createEnvelope } from '../services/docusign.js';
 import { exportAsPdf } from '../google/drive.js';
 import { STARTERS, getFieldsForType } from '../services/starters.js';
+import { db } from '../db/client.js';
 import type { Request } from 'express';
 
 export const contractsRouter: Router = Router();
@@ -44,6 +45,36 @@ contractsRouter.get('/:id', requireAuth, (req, res) => {
   const contract = getContract(String(req.params.id));
   if (!contract) return res.status(404).json({ error: 'not_found' });
   res.json({ contract });
+});
+
+// PUT /contracts/draft — upsert a draft contract during intake
+contractsRouter.put('/draft', requireAuth, (req, res) => {
+  try {
+    const userId = (req as Request & { userId: string }).userId;
+    const { contractType, fields, draftId } = req.body;
+    if (!contractType || !fields) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+    const contractId = upsertDraft(userId, contractType, fields, draftId);
+    res.json({ contractId });
+  } catch (err) {
+    res.status(500).json({ error: 'draft_failed' });
+  }
+});
+
+// PATCH /contracts/:id/html — update rendered HTML snapshot (inline editing)
+contractsRouter.patch('/:id/html', requireAuth, (req, res) => {
+  try {
+    const { html } = req.body;
+    if (typeof html !== 'string') {
+      return res.status(400).json({ error: 'missing_html' });
+    }
+    db.prepare(`UPDATE contracts SET rendered_html_snapshot = ?, updated_at = datetime('now') WHERE id = ?`)
+      .run(html, String(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'update_failed' });
+  }
 });
 
 // POST /contracts/generate — create a new contract from template

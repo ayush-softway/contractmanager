@@ -23,9 +23,11 @@ export default function J3AReviewPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const [sessionExpired, setSessionExpired] = useState(false);
+
   useEffect(() => {
     const raw = sessionStorage.getItem('uploadAnalysis');
-    if (!raw) { router.push('/upload'); return; }
+    if (!raw) { setSessionExpired(true); return; }
     const data = JSON.parse(raw) as RedlineAnalysis;
     if (data.journey !== 'j3a') { router.push('/upload/j3b'); return; }
     setAnalysis(data);
@@ -41,6 +43,8 @@ export default function J3AReviewPage() {
     api.resolveClause({ clauseId: id, action }).catch(() => {});
   }
 
+  const [finalizing, setFinalizing] = useState(false);
+
   async function sendChat() {
     const msg = chatInput.trim();
     if (!msg || chatLoading) return;
@@ -48,13 +52,28 @@ export default function J3AReviewPage() {
     setChatMessages((prev) => [...prev, { role: 'user', content: msg }]);
     setChatLoading(true);
     try {
-      const context = (analysis?.clauses ?? []).map((c) => `${c.name}: ${c.explanation}`).join('\n');
-      const result = await api.reviewChat('redline-context', `Context:\n${context}\n\nQuestion: ${msg}`);
+      const context = analysis?.clauses ?? [];
+      const result = await api.uploadChat('j3a', context, msg);
       setChatMessages((prev) => [...prev, { role: 'assistant', content: result.reply }]);
     } catch {
       setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, I ran into an error.' }]);
     } finally {
       setChatLoading(false);
+    }
+  }
+
+  async function handleFinalize() {
+    if (!allResolved || finalizing) return;
+    setFinalizing(true);
+    try {
+      const resolutions = Object.fromEntries(
+        clauses.filter((c) => c.resolution).map((c) => [c.id, c.resolution!]),
+      ) as Record<string, 'accepted' | 'rejected' | 'countered'>;
+      const { contractId } = await api.finalizeJ3A({ resolutions, clauses: analysis?.clauses });
+      sessionStorage.removeItem('uploadAnalysis');
+      router.push(`/contracts/${contractId}/review`);
+    } catch {
+      setFinalizing(false);
     }
   }
 
@@ -67,6 +86,29 @@ export default function J3AReviewPage() {
     config: verdictConfig[v],
     clauses: clauses.filter((c) => c.verdict === v),
   })).filter((g) => g.clauses.length > 0);
+
+  if (sessionExpired) {
+    return (
+      <AppShell>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+          <div className="text-4xl mb-4">⏱️</div>
+          <h2 className="text-lg font-semibold text-slate-800 mb-2">Session expired</h2>
+          <p className="text-sm text-slate-500 mb-6 max-w-xs">
+            The document analysis session is no longer available. Please upload your document again.
+          </p>
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-2 bg-teal-600 text-white px-5 py-2.5 rounded-lg font-medium text-sm hover:bg-teal-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to homepage
+          </button>
+        </div>
+      </AppShell>
+    );
+  }
 
   if (!analysis) {
     return (
@@ -149,12 +191,16 @@ export default function J3AReviewPage() {
 
             <div className="p-4 border-t border-slate-100">
               <button
-                disabled={!allResolved}
+                disabled={!allResolved || finalizing}
+                onClick={handleFinalize}
                 className="w-full bg-teal-600 disabled:bg-slate-200 disabled:text-slate-400 hover:bg-teal-700 text-white py-2.5 rounded-lg font-bold text-sm transition-colors flex items-center justify-center gap-2"
                 title={!allResolved ? 'Resolve all flagged items to enable' : ''}
               >
-                {!allResolved && <span className="text-slate-400">🔒</span>}
-                Finalize Document
+                {finalizing ? (
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Finalizing...</>
+                ) : (
+                  <>{!allResolved && <span className="text-slate-400">🔒</span>} Finalize Document</>
+                )}
               </button>
               {!allResolved && (
                 <p className="text-[10px] text-slate-400 text-center mt-1.5">Resolve all flagged items to enable</p>

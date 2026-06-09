@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dbPath = sqlitePathFromUrl(config.DATABASE_URL);
 fs.mkdirSync(path.dirname(path.resolve(dbPath)), { recursive: true });
 
-export const db = new Database(dbPath);
+export const db: Database.Database = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 

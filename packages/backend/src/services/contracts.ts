@@ -104,7 +104,7 @@ export async function generateContractV2(
     VALUES (?, ?, ?, ?, 'generated', ?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(
     contractId,
-    userId,
+    userId === 'demo-user' ? null : userId,
     `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
     contractType,
     driveFileId,
@@ -125,7 +125,39 @@ export function getContract(contractId: string) {
 }
 
 export function listContracts(userId: string) {
+  if (userId === 'demo-user') {
+    return db.prepare('SELECT * FROM contracts WHERE user_id IS NULL ORDER BY created_at DESC').all() as any[];
+  }
   return db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
+}
+
+export function upsertDraft(
+  userId: string,
+  contractType: string,
+  fields: Record<string, string>,
+  draftId?: string,
+): string {
+  const dbUserId = userId === 'demo-user' ? null : userId;
+  const starter = getStarter(contractType);
+  const clientName = fields.client_legal_name ?? 'Draft';
+  const title = `${clientName} — ${starter?.label ?? contractType}`;
+
+  if (draftId) {
+    db.prepare(`
+      UPDATE contracts
+      SET contract_type = ?, title = ?, field_values_json = ?, updated_at = datetime('now')
+      WHERE id = ? AND status = 'draft'
+    `).run(contractType, title, JSON.stringify(fields), draftId);
+    return draftId;
+  }
+
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id,
+      field_values_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'draft', 'demo-mock-id', ?, datetime('now'), datetime('now'))
+  `).run(id, dbUserId, title, contractType, JSON.stringify(fields));
+  return id;
 }
 
 export function updateContractStatus(contractId: string, status: string, extra: Record<string, string> = {}) {

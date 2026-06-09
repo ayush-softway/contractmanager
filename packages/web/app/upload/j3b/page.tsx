@@ -17,9 +17,12 @@ export default function J3BReviewPage() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [finalizing, setFinalizing] = useState(false);
+
   useEffect(() => {
     const raw = sessionStorage.getItem('uploadAnalysis');
-    if (!raw) { router.push('/upload'); return; }
+    if (!raw) { setSessionExpired(true); return; }
     const data = JSON.parse(raw) as ClientMSAAnalysis;
     if (data.journey !== 'j3b') { router.push('/upload/j3a'); return; }
     setAnalysis(data);
@@ -36,8 +39,8 @@ export default function J3BReviewPage() {
     setChatMessages((prev) => [...prev, { role: 'user', content: msg }]);
     setChatLoading(true);
     try {
-      const context = (analysis?.risks ?? []).map((r) => `${r.clauseName}: ${r.risk}`).join('\n');
-      const result = await api.reviewChat('msa-context', `Context:\n${context}\n\nQuestion: ${msg}`);
+      const context = analysis?.risks ?? [];
+      const result = await api.uploadChat('j3b', context, msg);
       setChatMessages((prev) => [...prev, { role: 'assistant', content: result.reply }]);
     } catch {
       setChatMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, I ran into an error.' }]);
@@ -46,7 +49,45 @@ export default function J3BReviewPage() {
     }
   }
 
+  async function handleFinalize() {
+    if (!allConfirmed || finalizing || !analysis) return;
+    setFinalizing(true);
+    try {
+      const { contractId } = await api.finalizeJ3B({
+        sowDraft: analysis.sowDraft,
+        risks: analysis.risks,
+      });
+      sessionStorage.removeItem('uploadAnalysis');
+      router.push(`/contracts/${contractId}/review`);
+    } catch {
+      setFinalizing(false);
+    }
+  }
+
   const allConfirmed = analysis ? confirmedRisks.size >= analysis.risks.length : false;
+
+  if (sessionExpired) {
+    return (
+      <AppShell>
+        <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
+          <div className="text-4xl mb-4">⏱️</div>
+          <h2 className="text-lg font-semibold text-slate-800 mb-2">Session expired</h2>
+          <p className="text-sm text-slate-500 mb-6 max-w-xs">
+            The document analysis session is no longer available. Please upload your document again.
+          </p>
+          <button
+            onClick={() => router.push('/')}
+            className="flex items-center gap-2 bg-teal-600 text-white px-5 py-2.5 rounded-lg font-medium text-sm hover:bg-teal-700 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+            Back to homepage
+          </button>
+        </div>
+      </AppShell>
+    );
+  }
 
   if (!analysis) {
     return (
@@ -155,8 +196,16 @@ export default function J3BReviewPage() {
         <div className="border-t border-slate-200 bg-white">
           {allConfirmed && (
             <div className="px-4 pt-3">
-              <button className="w-full bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition-colors">
-                Finalize → Send to DocuSign
+              <button
+                onClick={handleFinalize}
+                disabled={finalizing}
+                className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2"
+              >
+                {finalizing ? (
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Finalizing...</>
+                ) : (
+                  'Finalize → Send to DocuSign'
+                )}
               </button>
             </div>
           )}

@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS contracts (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id),
   title TEXT NOT NULL,
-  contract_type TEXT NOT NULL CHECK (contract_type IN ('msa-sow', 'sow-standalone', 'change-order')),
+  contract_type TEXT NOT NULL CHECK (contract_type IN ('msa', 'msa-sow', 'sow-standalone', 'change-order')),
   status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'generated', 'sent', 'signed')),
   drive_file_id TEXT,
   pdf_drive_file_id TEXT,

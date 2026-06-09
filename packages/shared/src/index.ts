@@ -29,9 +29,9 @@ export interface User {
 // --------------------------------------------------------------------------
 // Contract types
 // --------------------------------------------------------------------------
-export type ContractType = 'msa-sow' | 'sow-standalone' | 'change-order';
+export type ContractType = 'msa' | 'msa-sow' | 'sow-standalone' | 'change-order';
 export type ContractStatus = 'draft' | 'generated' | 'sent' | 'signed';
-export type ImportSource = 'hubspot' | 'drive' | 'text';
+export type ImportSource = 'hubspot' | 'drive' | 'text' | 'file';
 
 // --------------------------------------------------------------------------
 // Contract
@@ -99,6 +99,7 @@ export interface ChatMessage {
 export interface IntakeChatRequest {
   history: ChatMessage[];
   message: string;
+  capturedFields?: Record<string, string>;
 }
 
 export interface IntakeChatResponse {
@@ -117,6 +118,7 @@ export interface ReviewChatResponse {
   edited: boolean;
   updatedHtml?: string;
   patch?: { field: string; newValue: string };
+  clauseAction?: { type: 'add'; name: string; body: string } | { type: 'remove'; name: string };
 }
 
 // --------------------------------------------------------------------------

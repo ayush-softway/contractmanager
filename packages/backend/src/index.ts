@@ -33,7 +33,7 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRouter);
 app.use('/contracts', contractsRouter);
-app.use('/import/detect', importDetectRouter);
+app.use('/import', importDetectRouter);
 app.use('/ai', aiRouter);
 app.use('/upload', uploadRouter);
 app.use('/admin', adminRouter);
