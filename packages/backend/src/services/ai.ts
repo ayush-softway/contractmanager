@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, { type Message, type MessageParam } from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { config } from '../config.js';
 import type {
@@ -90,7 +90,7 @@ function cachedSystem(text: string) {
   return [{ type: 'text' as const, text, cache_control: { type: 'ephemeral' as const } }];
 }
 
-function extractText(response: Anthropic.Message): string {
+function extractText(response: Message): string {
   const block = response.content.find((b) => b.type === 'text');
   return block && block.type === 'text' ? block.text : '';
 }
@@ -244,7 +244,7 @@ export async function intakeChat(
 ): Promise<{ reply: string; fields: Record<string, string>; ready: boolean }> {
   try {
     // Prepend confirmed fields as context so the AI never re-asks them
-    const prefixMessages: Anthropic.MessageParam[] = [];
+    const prefixMessages: MessageParam[] = [];
     if (capturedFields && Object.keys(capturedFields).length > 0) {
       const fieldList = Object.entries(capturedFields)
         .map(([k, v]) => `${k}="${v}"`)
@@ -255,7 +255,7 @@ export async function intakeChat(
       );
     }
 
-    const messages: Anthropic.MessageParam[] = [
+    const messages: MessageParam[] = [
       ...prefixMessages,
       ...history.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
       { role: 'user', content: message },
