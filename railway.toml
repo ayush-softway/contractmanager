@@ -1,0 +1,7 @@
+[build]
+buildCommand = "npm ci && npm run build --workspace=@cg/backend"
+
+[deploy]
+startCommand = "node packages/backend/dist/index.js"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
