@@ -20,7 +20,7 @@ import type {
   Clause,
 } from '@cg/shared';
 
-const BASE = '/api/backend';
+const BASE = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

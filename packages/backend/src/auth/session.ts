@@ -34,7 +34,7 @@ export function setSessionCookie(res: Response, id: string, expiresAt: Date): vo
   res.cookie(COOKIE_NAME, id, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
     expires: expiresAt,
     path: '/',
   });
