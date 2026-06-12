@@ -203,7 +203,7 @@ function LoginPage() {
           </p>
         </div>
         <a
-          href="/api/backend/auth/google/login"
+          href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/google/login`}
           className="inline-flex items-center gap-3 rounded-lg bg-teal-600 px-6 py-3 text-white font-semibold hover:bg-teal-700 transition-colors shadow-sm w-full justify-center"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
