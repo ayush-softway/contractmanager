@@ -6,7 +6,7 @@
 - **npm** 9+ (ships with recent Node)
 - A **Google account** — a personal account works for dev; you'll want a
   Workspace org for testing the add-on.
-- A **Gemini API key** — get one for free at https://aistudio.google.com/apikey
+- A **Anthropic API key** — get one at https://console.anthropic.com
 - **ngrok** (or similar tunnel) — only needed when you wire up the add-on,
   because Google's webhooks need a public HTTPS URL.
 
@@ -38,7 +38,7 @@ You need at minimum:
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `SESSION_SECRET` — run `openssl rand -hex 32` and paste the output
-- `GEMINI_API_KEY`
+- `ANTHROPIC_API_KEY` — from https://console.anthropic.com
 
 ### 4. Initialize the database
 

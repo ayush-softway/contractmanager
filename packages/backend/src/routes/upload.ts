@@ -80,7 +80,10 @@ const J3AFinalizeSchema = z.object({
 uploadRouter.post('/j3a/finalize', async (req, res, next) => {
   try {
     const { resolutions, clauses, title } = J3AFinalizeSchema.parse(req.body);
-    const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
+    const userId = (req as Request & { userId?: string }).userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
+    }
     const contractId = nanoid();
     const contractTitle = title ?? 'Resolved Redlines — Client MSA';
 
@@ -100,7 +103,7 @@ uploadRouter.post('/j3a/finalize', async (req, res, next) => {
     db.prepare(`
       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(contractId, userId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, 'demo-mock-id');
+    `).run(contractId, userId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, null);
 
     res.json({ contractId });
   } catch (err) {
@@ -120,7 +123,10 @@ const J3BFinalizeSchema = z.object({
 uploadRouter.post('/j3b/finalize', async (req, res, next) => {
   try {
     const { sowDraft, risks, clientName } = J3BFinalizeSchema.parse(req.body);
-    const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
+    const userId = (req as Request & { userId?: string }).userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
+    }
     const contractId = nanoid();
     const contractTitle = clientName ? `SOW — ${clientName}` : 'Generated SOW — Client MSA';
 
@@ -132,7 +138,7 @@ uploadRouter.post('/j3b/finalize', async (req, res, next) => {
     db.prepare(`
       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-    `).run(contractId, userId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, 'demo-mock-id');
+    `).run(contractId, userId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, null);
 
     res.json({ contractId });
   } catch (err) {

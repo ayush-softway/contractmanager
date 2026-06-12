@@ -1,0 +1,406 @@
+From 7e249cd778bec1b0ceddd1a187b9a838b93f2b57 Mon Sep 17 00:00:00 2001
+From: "Shivansh (via Claude)" <shivansh@fix>
+Date: Fri, 12 Jun 2026 10:02:59 +0000
+Subject: [PATCH] =?UTF-8?q?fix:=20restore=20Google=20OAuth=20=E2=80=94=20r?=
+ =?UTF-8?q?emove=20demo=20bypass,=20fix=20cookies,=20improve=20error=20han?=
+ =?UTF-8?q?dling?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+WHAT WAS BROKEN:
+- requireAuth() was hardcoded to bypass auth and inject 'demo-user' on every request
+- clearCookie() didn't mirror setCookie() attributes, so logout couldn't clear cross-origin cookies
+- Login button URL had no fallback for missing NEXT_PUBLIC_BACKEND_URL
+- OAuth callback swallowed Google's error responses (access_denied, etc.)
+- SETUP.md referenced GEMINI_API_KEY but config.ts validates ANTHROPIC_API_KEY
+- 'demo-user' workarounds were scattered across 5 service/route files
+
+CHANGES (9 files):
+- packages/backend/src/auth/session.ts: restore real requireAuth, fix clearCookie
+- packages/backend/src/routes/auth.ts: handle Google error param, add diagnostic logging
+- packages/backend/src/index.ts: log redirect URI + client ID at startup
+- packages/backend/src/services/contracts.ts: remove all demo-user branching (4 places)
+- packages/backend/src/routes/contracts.ts: reject contracts without Drive file
+- packages/backend/src/routes/upload.ts: remove demo-user fallbacks, add 401 checks
+- packages/backend/src/services/importDetect.ts: remove demo-user string check
+- packages/web/app/page.tsx: add URL fallback to login button
+- docs/SETUP.md: fix GEMINI_API_KEY -> ANTHROPIC_API_KEY
+
+DEPLOYMENT CHECKLIST (Railway backend + Vercel frontend):
+- Railway: GOOGLE_REDIRECT_URI must exactly match Google Cloud Console
+- Railway: WEB_ORIGIN must be the Vercel frontend URL
+- Railway: NODE_ENV=production (enables Secure + SameSite=None cookies)
+- Vercel: NEXT_PUBLIC_BACKEND_URL must be the Railway backend URL
+- Google Cloud Console: add both URLs to Authorized Origins + Redirect URIs
+- Google Cloud Console: add test user emails under OAuth consent screen
+---
+ docs/SETUP.md                                 |  4 +-
+ packages/backend/src/auth/session.ts          | 13 ++-
+ packages/backend/src/index.ts                 |  2 +
+ packages/backend/src/routes/auth.ts           | 24 ++++-
+ packages/backend/src/routes/contracts.ts      | 10 ++-
+ packages/backend/src/routes/upload.ts         | 14 ++-
+ packages/backend/src/services/contracts.ts    | 88 +++++++++----------
+ packages/backend/src/services/importDetect.ts |  2 +-
+ packages/web/app/page.tsx                     |  4 +-
+ 9 files changed, 99 insertions(+), 62 deletions(-)
+
+diff --git a/docs/SETUP.md b/docs/SETUP.md
+index b1cc679..4327312 100644
+--- a/docs/SETUP.md
++++ b/docs/SETUP.md
+@@ -6,7 +6,7 @@
+ - **npm** 9+ (ships with recent Node)
+ - A **Google account** — a personal account works for dev; you'll want a
+   Workspace org for testing the add-on.
+-- A **Gemini API key** — get one for free at https://aistudio.google.com/apikey
++- A **Anthropic API key** — get one at https://console.anthropic.com
+ - **ngrok** (or similar tunnel) — only needed when you wire up the add-on,
+   because Google's webhooks need a public HTTPS URL.
+ 
+@@ -38,7 +38,7 @@ You need at minimum:
+ - `GOOGLE_CLIENT_ID`
+ - `GOOGLE_CLIENT_SECRET`
+ - `SESSION_SECRET` — run `openssl rand -hex 32` and paste the output
+-- `GEMINI_API_KEY`
++- `ANTHROPIC_API_KEY` — from https://console.anthropic.com
+ 
+ ### 4. Initialize the database
+ 
+diff --git a/packages/backend/src/auth/session.ts b/packages/backend/src/auth/session.ts
+index a551cdc..be3528b 100644
+--- a/packages/backend/src/auth/session.ts
++++ b/packages/backend/src/auth/session.ts
+@@ -41,7 +41,12 @@ export function setSessionCookie(res: Response, id: string, expiresAt: Date): vo
+ }
+ 
+ export function clearSessionCookie(res: Response): void {
+-  res.clearCookie(COOKIE_NAME, { path: '/' });
++  res.clearCookie(COOKIE_NAME, {
++    path: '/',
++    httpOnly: true,
++    secure: process.env.NODE_ENV === 'production',
++    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
++  });
+ }
+ 
+ export function getSessionIdFromReq(req: Request): string | null {
+@@ -63,7 +68,9 @@ export function sessionMiddleware(req: Request, _res: Response, next: NextFuncti
+ 
+ /** Reject requests that don't have a valid session. Mount after sessionMiddleware. */
+ export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+-  // DEMO MODE: Bypass auth completely
+-  (req as Request & { userId?: string }).userId = 'demo-user';
++  const userId = (req as Request & { userId?: string }).userId;
++  if (!userId) {
++    return void res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
++  }
+   next();
+ }
+diff --git a/packages/backend/src/index.ts b/packages/backend/src/index.ts
+index 52adb87..7109195 100644
+--- a/packages/backend/src/index.ts
++++ b/packages/backend/src/index.ts
+@@ -60,4 +60,6 @@ app.listen(config.PORT, () => {
+   console.log(`✔ ContractGen V2 listening on http://localhost:${config.PORT}`);
+   console.log(`  CORS origin: ${config.WEB_ORIGIN}`);
+   console.log(`  DB: ${config.DATABASE_URL}`);
++  console.log(`  Google redirect URI: ${config.GOOGLE_REDIRECT_URI}`);
++  console.log(`  Google client ID: ${config.GOOGLE_CLIENT_ID.slice(0, 20)}…`);
+ });
+diff --git a/packages/backend/src/routes/auth.ts b/packages/backend/src/routes/auth.ts
+index d0f9189..8813ccb 100644
+--- a/packages/backend/src/routes/auth.ts
++++ b/packages/backend/src/routes/auth.ts
+@@ -28,9 +28,27 @@ authRouter.get('/google/login', (_req, res) => {
+ });
+ 
+ authRouter.get('/google/callback', async (req, res) => {
+-  const { code, state } = req.query as { code?: string; state?: string };
++  const { code, state, error } = req.query as { code?: string; state?: string; error?: string };
++
++  // Google sends ?error=access_denied when the user declines or isn't a test user
++  if (error) {
++    console.error('Google OAuth returned error:', error);
++    return res.status(403).send(
++      `Google sign-in failed: ${error}. ` +
++      'If the app is in "Testing" mode, make sure your Google account is listed as a test user in the Google Cloud Console.'
++    );
++  }
++
+   if (!code || !state || !oauthStates.has(state)) {
+-    return res.status(400).send('Invalid OAuth state');
++    console.error('OAuth state validation failed.', {
++      hasCode: !!code,
++      hasState: !!state,
++      stateValid: state ? oauthStates.has(state) : false,
++      pendingStates: oauthStates.size,
++    });
++    return res.status(400).send(
++      'Invalid OAuth state — the login session may have expired or the server may have restarted. Please try signing in again.'
++    );
+   }
+   oauthStates.delete(state);
+ 
+@@ -48,6 +66,7 @@ authRouter.get('/google/callback', async (req, res) => {
+     const avatarUrl = profile.data.picture ?? undefined;
+ 
+     if (!googleId || !email) {
++      console.error('Google profile incomplete:', { googleId, email });
+       return res.status(500).send('Google returned an incomplete profile');
+     }
+ 
+@@ -57,6 +76,7 @@ authRouter.get('/google/callback', async (req, res) => {
+     const session = createSession(user.id);
+     setSessionCookie(res, session.id, session.expiresAt);
+ 
++    console.log(`✔ OAuth login: ${email} (user ${user.id})`);
+     res.redirect(config.WEB_ORIGIN);
+   } catch (err) {
+     console.error('OAuth callback failed:', err);
+diff --git a/packages/backend/src/routes/contracts.ts b/packages/backend/src/routes/contracts.ts
+index 472744c..15ea07e 100644
+--- a/packages/backend/src/routes/contracts.ts
++++ b/packages/backend/src/routes/contracts.ts
+@@ -117,11 +117,13 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
+ 
+     let pdfBuffer: Buffer;
+     try {
+-      if (contract.drive_file_id === 'demo-mock-id') {
+-        pdfBuffer = Buffer.from('mock-pdf');
+-      } else {
+-        pdfBuffer = await exportAsPdf(userId, contract.drive_file_id);
++      if (!contract.drive_file_id || contract.drive_file_id === 'demo-mock-id') {
++        return res.status(400).json({
++          error: 'no_drive_file',
++          message: 'This contract has no Google Drive document. Generate it first.',
++        });
+       }
++      pdfBuffer = await exportAsPdf(userId, contract.drive_file_id);
+     } catch (pdfErr) {
+       // Error state: PDF export fails — contract is never lost
+       return res.status(200).json({
+diff --git a/packages/backend/src/routes/upload.ts b/packages/backend/src/routes/upload.ts
+index e470cf2..0ee8640 100644
+--- a/packages/backend/src/routes/upload.ts
++++ b/packages/backend/src/routes/upload.ts
+@@ -80,7 +80,10 @@ const J3AFinalizeSchema = z.object({
+ uploadRouter.post('/j3a/finalize', async (req, res, next) => {
+   try {
+     const { resolutions, clauses, title } = J3AFinalizeSchema.parse(req.body);
+-    const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
++    const userId = (req as Request & { userId?: string }).userId;
++    if (!userId) {
++      return res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
++    }
+     const contractId = nanoid();
+     const contractTitle = title ?? 'Resolved Redlines — Client MSA';
+ 
+@@ -100,7 +103,7 @@ uploadRouter.post('/j3a/finalize', async (req, res, next) => {
+     db.prepare(`
+       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+-    `).run(contractId, userId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, 'demo-mock-id');
++    `).run(contractId, userId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, null);
+ 
+     res.json({ contractId });
+   } catch (err) {
+@@ -120,7 +123,10 @@ const J3BFinalizeSchema = z.object({
+ uploadRouter.post('/j3b/finalize', async (req, res, next) => {
+   try {
+     const { sowDraft, risks, clientName } = J3BFinalizeSchema.parse(req.body);
+-    const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
++    const userId = (req as Request & { userId?: string }).userId;
++    if (!userId) {
++      return res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
++    }
+     const contractId = nanoid();
+     const contractTitle = clientName ? `SOW — ${clientName}` : 'Generated SOW — Client MSA';
+ 
+@@ -132,7 +138,7 @@ uploadRouter.post('/j3b/finalize', async (req, res, next) => {
+     db.prepare(`
+       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+-    `).run(contractId, userId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, 'demo-mock-id');
++    `).run(contractId, userId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, null);
+ 
+     res.json({ contractId });
+   } catch (err) {
+diff --git a/packages/backend/src/services/contracts.ts b/packages/backend/src/services/contracts.ts
+index 57fb450..a73b817 100644
+--- a/packages/backend/src/services/contracts.ts
++++ b/packages/backend/src/services/contracts.ts
+@@ -38,49 +38,49 @@ export async function generateContractV2(
+     throw new ValidationError(`Unknown contract type: ${contractType}`);
+   }
+ 
+-  let driveFileId = 'demo-mock-id';
++  let driveFileId: string;
+   let renderedHtml = '';
+ 
+-  // DEMO MODE: Skip actual Google Drive API calls if unauthenticated
+-  if (userId !== 'demo-user') {
+-    const drive = driveFor(userId);
+-    const templatePath = getStarterDocxPath(starter);
+-
+-    const createRes = await drive.files.create({
+-      requestBody: {
+-        name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+-        mimeType: 'application/vnd.google-apps.document',
+-      },
+-      media: {
+-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+-        body: fs.createReadStream(templatePath),
++  // Upload template DOCX to Drive as a Google Doc, then fill variables
++  const drive = driveFor(userId);
++  const templatePath = getStarterDocxPath(starter);
++
++  const createRes = await drive.files.create({
++    requestBody: {
++      name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
++      mimeType: 'application/vnd.google-apps.document',
++    },
++    media: {
++      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
++      body: fs.createReadStream(templatePath),
++    },
++    fields: 'id',
++  });
++
++  driveFileId = createRes.data.id!;
++
++  // Replace {{variables}} in the Google Doc
++  const { google } = await import('googleapis');
++  const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
++
++  const requests = Object.entries(fields)
++    .filter(([_, value]) => value)
++    .map(([key, value]) => ({
++      replaceAllText: {
++        containsText: { text: `{{${key}}}`, matchCase: false },
++        replaceText: value,
+       },
+-      fields: 'id',
++    }));
++
++  if (requests.length > 0) {
++    await docs.documents.batchUpdate({
++      documentId: driveFileId,
++      requestBody: { requests },
+     });
++  }
+ 
+-    driveFileId = createRes.data.id!;
+-
+-    // Replace {{variables}} in the Google Doc
+-    const { google } = await import('googleapis');
+-    const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
+-
+-    const requests = Object.entries(fields)
+-      .filter(([_, value]) => value)
+-      .map(([key, value]) => ({
+-        replaceAllText: {
+-          containsText: { text: `{{${key}}}`, matchCase: false },
+-          replaceText: value,
+-        },
+-      }));
+-
+-    if (requests.length > 0) {
+-      await docs.documents.batchUpdate({
+-        documentId: driveFileId,
+-        requestBody: { requests },
+-      });
+-    }
+-  } else {
+-    // Demo mode: read .md, substitute variables, convert to HTML
++  // Also render an HTML snapshot for clause coverage and in-app preview
++  try {
+     const mdPath = getStarterMdPath(starter);
+     let markdown = fs.readFileSync(mdPath, 'utf-8');
+     const fieldMap = new Map(Object.entries(fields).map(([k, v]) => [k.toLowerCase(), v]));
+@@ -88,6 +88,8 @@ export async function generateContractV2(
+       fieldMap.get(key.toLowerCase()) ?? `[${key} not provided]`
+     );
+     renderedHtml = await marked.parse(markdown);
++  } catch {
++    // HTML snapshot is optional — Drive doc is the source of truth
+   }
+ 
+   // Run clause coverage checks on the rendered HTML
+@@ -104,7 +106,7 @@ export async function generateContractV2(
+     VALUES (?, ?, ?, ?, 'generated', ?, ?, ?, ?, datetime('now'), datetime('now'))
+   `).run(
+     contractId,
+-    userId === 'demo-user' ? null : userId,
++    userId,
+     `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+     contractType,
+     driveFileId,
+@@ -125,9 +127,6 @@ export function getContract(contractId: string) {
+ }
+ 
+ export function listContracts(userId: string) {
+-  if (userId === 'demo-user') {
+-    return db.prepare('SELECT * FROM contracts WHERE user_id IS NULL ORDER BY created_at DESC').all() as any[];
+-  }
+   return db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
+ }
+ 
+@@ -137,7 +136,6 @@ export function upsertDraft(
+   fields: Record<string, string>,
+   draftId?: string,
+ ): string {
+-  const dbUserId = userId === 'demo-user' ? null : userId;
+   const starter = getStarter(contractType);
+   const clientName = fields.client_legal_name ?? 'Draft';
+   const title = `${clientName} — ${starter?.label ?? contractType}`;
+@@ -155,8 +153,8 @@ export function upsertDraft(
+   db.prepare(`
+     INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id,
+       field_values_json, created_at, updated_at)
+-    VALUES (?, ?, ?, ?, 'draft', 'demo-mock-id', ?, datetime('now'), datetime('now'))
+-  `).run(id, dbUserId, title, contractType, JSON.stringify(fields));
++    VALUES (?, ?, ?, ?, 'draft', NULL, ?, datetime('now'), datetime('now'))
++  `).run(id, userId, title, contractType, JSON.stringify(fields));
+   return id;
+ }
+ 
+diff --git a/packages/backend/src/services/importDetect.ts b/packages/backend/src/services/importDetect.ts
+index d1d1574..430162c 100644
+--- a/packages/backend/src/services/importDetect.ts
++++ b/packages/backend/src/services/importDetect.ts
+@@ -63,7 +63,7 @@ export async function importFromFile(buffer: Buffer, mimetype: string, filename:
+ }
+ 
+ export async function importFromDriveFile(fileId: string, userId?: string): Promise<ImportResult> {
+-  if (!userId || userId === 'demo-user') {
++  if (!userId) {
+     return { fields: {}, source: 'drive', label: 'Sign in to import from Drive' };
+   }
+ 
+diff --git a/packages/web/app/page.tsx b/packages/web/app/page.tsx
+index fe44e10..dccc2fd 100644
+--- a/packages/web/app/page.tsx
++++ b/packages/web/app/page.tsx
+@@ -191,6 +191,8 @@ export default function HomePage() {
+ }
+ 
+ function LoginPage() {
++  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
++
+   return (
+     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+       <section className="mx-auto max-w-sm text-center space-y-8 py-20 px-6">
+@@ -203,7 +205,7 @@ function LoginPage() {
+           </p>
+         </div>
+         <a
+-          href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/google/login`}
++          href={`${backendUrl}/auth/google/login`}
+           className="inline-flex items-center gap-3 rounded-lg bg-teal-600 px-6 py-3 text-white font-semibold hover:bg-teal-700 transition-colors shadow-sm w-full justify-center"
+         >
+           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+-- 
+2.43.0
+

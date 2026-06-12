@@ -117,11 +117,13 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
 
     let pdfBuffer: Buffer;
     try {
-      if (contract.drive_file_id === 'demo-mock-id') {
-        pdfBuffer = Buffer.from('mock-pdf');
-      } else {
-        pdfBuffer = await exportAsPdf(userId, contract.drive_file_id);
+      if (!contract.drive_file_id || contract.drive_file_id === 'demo-mock-id') {
+        return res.status(400).json({
+          error: 'no_drive_file',
+          message: 'This contract has no Google Drive document. Generate it first.',
+        });
       }
+      pdfBuffer = await exportAsPdf(userId, contract.drive_file_id);
     } catch (pdfErr) {
       // Error state: PDF export fails — contract is never lost
       return res.status(200).json({

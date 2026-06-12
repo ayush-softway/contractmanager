@@ -191,6 +191,8 @@ export default function HomePage() {
 }
 
 function LoginPage() {
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:4000';
+
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center">
       <section className="mx-auto max-w-sm text-center space-y-8 py-20 px-6">
@@ -203,7 +205,7 @@ function LoginPage() {
           </p>
         </div>
         <a
-          href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/auth/google/login`}
+          href={`${backendUrl}/auth/google/login`}
           className="inline-flex items-center gap-3 rounded-lg bg-teal-600 px-6 py-3 text-white font-semibold hover:bg-teal-700 transition-colors shadow-sm w-full justify-center"
         >
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">

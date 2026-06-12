@@ -41,7 +41,12 @@ export function setSessionCookie(res: Response, id: string, expiresAt: Date): vo
 }
 
 export function clearSessionCookie(res: Response): void {
-  res.clearCookie(COOKIE_NAME, { path: '/' });
+  res.clearCookie(COOKIE_NAME, {
+    path: '/',
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  });
 }
 
 export function getSessionIdFromReq(req: Request): string | null {
@@ -63,7 +68,9 @@ export function sessionMiddleware(req: Request, _res: Response, next: NextFuncti
 
 /** Reject requests that don't have a valid session. Mount after sessionMiddleware. */
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
-  // DEMO MODE: Bypass auth completely
-  (req as Request & { userId?: string }).userId = 'demo-user';
+  const userId = (req as Request & { userId?: string }).userId;
+  if (!userId) {
+    return void res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
+  }
   next();
 }

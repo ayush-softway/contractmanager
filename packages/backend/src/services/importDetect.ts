@@ -63,7 +63,7 @@ export async function importFromFile(buffer: Buffer, mimetype: string, filename:
 }
 
 export async function importFromDriveFile(fileId: string, userId?: string): Promise<ImportResult> {
-  if (!userId || userId === 'demo-user') {
+  if (!userId) {
     return { fields: {}, source: 'drive', label: 'Sign in to import from Drive' };
   }
 

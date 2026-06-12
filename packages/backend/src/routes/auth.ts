@@ -28,9 +28,27 @@ authRouter.get('/google/login', (_req, res) => {
 });
 
 authRouter.get('/google/callback', async (req, res) => {
-  const { code, state } = req.query as { code?: string; state?: string };
+  const { code, state, error } = req.query as { code?: string; state?: string; error?: string };
+
+  // Google sends ?error=access_denied when the user declines or isn't a test user
+  if (error) {
+    console.error('Google OAuth returned error:', error);
+    return res.status(403).send(
+      `Google sign-in failed: ${error}. ` +
+      'If the app is in "Testing" mode, make sure your Google account is listed as a test user in the Google Cloud Console.'
+    );
+  }
+
   if (!code || !state || !oauthStates.has(state)) {
-    return res.status(400).send('Invalid OAuth state');
+    console.error('OAuth state validation failed.', {
+      hasCode: !!code,
+      hasState: !!state,
+      stateValid: state ? oauthStates.has(state) : false,
+      pendingStates: oauthStates.size,
+    });
+    return res.status(400).send(
+      'Invalid OAuth state — the login session may have expired or the server may have restarted. Please try signing in again.'
+    );
   }
   oauthStates.delete(state);
 
@@ -48,6 +66,7 @@ authRouter.get('/google/callback', async (req, res) => {
     const avatarUrl = profile.data.picture ?? undefined;
 
     if (!googleId || !email) {
+      console.error('Google profile incomplete:', { googleId, email });
       return res.status(500).send('Google returned an incomplete profile');
     }
 
@@ -57,6 +76,7 @@ authRouter.get('/google/callback', async (req, res) => {
     const session = createSession(user.id);
     setSessionCookie(res, session.id, session.expiresAt);
 
+    console.log(`✔ OAuth login: ${email} (user ${user.id})`);
     res.redirect(config.WEB_ORIGIN);
   } catch (err) {
     console.error('OAuth callback failed:', err);

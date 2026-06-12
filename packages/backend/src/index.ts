@@ -60,4 +60,6 @@ app.listen(config.PORT, () => {
   console.log(`✔ ContractGen V2 listening on http://localhost:${config.PORT}`);
   console.log(`  CORS origin: ${config.WEB_ORIGIN}`);
   console.log(`  DB: ${config.DATABASE_URL}`);
+  console.log(`  Google redirect URI: ${config.GOOGLE_REDIRECT_URI}`);
+  console.log(`  Google client ID: ${config.GOOGLE_CLIENT_ID.slice(0, 20)}…`);
 });

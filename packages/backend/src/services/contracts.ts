@@ -38,49 +38,49 @@ export async function generateContractV2(
     throw new ValidationError(`Unknown contract type: ${contractType}`);
   }
 
-  let driveFileId = 'demo-mock-id';
+  let driveFileId: string;
   let renderedHtml = '';
 
-  // DEMO MODE: Skip actual Google Drive API calls if unauthenticated
-  if (userId !== 'demo-user') {
-    const drive = driveFor(userId);
-    const templatePath = getStarterDocxPath(starter);
+  // Upload template DOCX to Drive as a Google Doc, then fill variables
+  const drive = driveFor(userId);
+  const templatePath = getStarterDocxPath(starter);
 
-    const createRes = await drive.files.create({
-      requestBody: {
-        name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
-        mimeType: 'application/vnd.google-apps.document',
+  const createRes = await drive.files.create({
+    requestBody: {
+      name: `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
+      mimeType: 'application/vnd.google-apps.document',
+    },
+    media: {
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      body: fs.createReadStream(templatePath),
+    },
+    fields: 'id',
+  });
+
+  driveFileId = createRes.data.id!;
+
+  // Replace {{variables}} in the Google Doc
+  const { google } = await import('googleapis');
+  const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
+
+  const requests = Object.entries(fields)
+    .filter(([_, value]) => value)
+    .map(([key, value]) => ({
+      replaceAllText: {
+        containsText: { text: `{{${key}}}`, matchCase: false },
+        replaceText: value,
       },
-      media: {
-        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        body: fs.createReadStream(templatePath),
-      },
-      fields: 'id',
+    }));
+
+  if (requests.length > 0) {
+    await docs.documents.batchUpdate({
+      documentId: driveFileId,
+      requestBody: { requests },
     });
+  }
 
-    driveFileId = createRes.data.id!;
-
-    // Replace {{variables}} in the Google Doc
-    const { google } = await import('googleapis');
-    const docs = google.docs({ version: 'v1', auth: drive.context._options.auth as any });
-
-    const requests = Object.entries(fields)
-      .filter(([_, value]) => value)
-      .map(([key, value]) => ({
-        replaceAllText: {
-          containsText: { text: `{{${key}}}`, matchCase: false },
-          replaceText: value,
-        },
-      }));
-
-    if (requests.length > 0) {
-      await docs.documents.batchUpdate({
-        documentId: driveFileId,
-        requestBody: { requests },
-      });
-    }
-  } else {
-    // Demo mode: read .md, substitute variables, convert to HTML
+  // Also render an HTML snapshot for clause coverage and in-app preview
+  try {
     const mdPath = getStarterMdPath(starter);
     let markdown = fs.readFileSync(mdPath, 'utf-8');
     const fieldMap = new Map(Object.entries(fields).map(([k, v]) => [k.toLowerCase(), v]));
@@ -88,6 +88,8 @@ export async function generateContractV2(
       fieldMap.get(key.toLowerCase()) ?? `[${key} not provided]`
     );
     renderedHtml = await marked.parse(markdown);
+  } catch {
+    // HTML snapshot is optional — Drive doc is the source of truth
   }
 
   // Run clause coverage checks on the rendered HTML
@@ -104,7 +106,7 @@ export async function generateContractV2(
     VALUES (?, ?, ?, ?, 'generated', ?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(
     contractId,
-    userId === 'demo-user' ? null : userId,
+    userId,
     `${fields.client_legal_name ?? 'Client'} — ${starter.label}`,
     contractType,
     driveFileId,
@@ -125,9 +127,6 @@ export function getContract(contractId: string) {
 }
 
 export function listContracts(userId: string) {
-  if (userId === 'demo-user') {
-    return db.prepare('SELECT * FROM contracts WHERE user_id IS NULL ORDER BY created_at DESC').all() as any[];
-  }
   return db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
 }
 
@@ -137,7 +136,6 @@ export function upsertDraft(
   fields: Record<string, string>,
   draftId?: string,
 ): string {
-  const dbUserId = userId === 'demo-user' ? null : userId;
   const starter = getStarter(contractType);
   const clientName = fields.client_legal_name ?? 'Draft';
   const title = `${clientName} — ${starter?.label ?? contractType}`;
@@ -155,8 +153,8 @@ export function upsertDraft(
   db.prepare(`
     INSERT INTO contracts (id, user_id, title, contract_type, status, drive_file_id,
       field_values_json, created_at, updated_at)
-    VALUES (?, ?, ?, ?, 'draft', 'demo-mock-id', ?, datetime('now'), datetime('now'))
-  `).run(id, dbUserId, title, contractType, JSON.stringify(fields));
+    VALUES (?, ?, ?, ?, 'draft', NULL, ?, datetime('now'), datetime('now'))
+  `).run(id, userId, title, contractType, JSON.stringify(fields));
   return id;
 }
 
