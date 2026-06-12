@@ -36,3 +36,4 @@ yarn-error.log*
 credentials.json
 client_secret*.json
 token.json
+.vercel
