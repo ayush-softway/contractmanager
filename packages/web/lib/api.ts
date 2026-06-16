@@ -119,6 +119,12 @@ export const api = {
   finalizeContractDraft: (id: string) =>
     req<{ contract: Contract }>(`/contracts/drafts/${id}/finalize`, { method: 'POST' }),
 
+  updateContractStatus: (id: string, status: string) =>
+    req<{ contract: Contract }>(`/contracts/${id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    }),
+
   aiEdit: (body: AIEditRequest) =>
     req<AIEditResponse>('/ai/edit', { method: 'POST', body: JSON.stringify(body) }),
 };

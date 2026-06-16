@@ -141,22 +141,26 @@ export default function ContractsPage() {
               href={itemHref(item)}
               className="group flex w-44 flex-shrink-0 flex-col"
             >
-              <div className="relative flex h-56 w-44 flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-brand hover:shadow">
+              <div className="relative flex h-56 w-44 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition hover:border-brand hover:shadow">
                 {item.kind === 'draft' && (
-                  <span className="absolute right-2 top-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
+                  <span className="absolute right-2 top-2 z-10 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800">
                     Draft
                   </span>
                 )}
-                <div className="flex-1 overflow-hidden text-[10px] leading-snug text-slate-400">
-                  <div className="h-2 w-3/4 rounded bg-slate-100" />
-                  <div className="mt-2 h-2 w-full rounded bg-slate-100" />
-                  <div className="mt-1.5 h-2 w-5/6 rounded bg-slate-100" />
-                  <div className="mt-1.5 h-2 w-full rounded bg-slate-100" />
-                  <div className="mt-1.5 h-2 w-2/3 rounded bg-slate-100" />
-                  <div className="mt-4 h-2 w-1/2 rounded bg-slate-100" />
-                  <div className="mt-2 h-2 w-full rounded bg-slate-100" />
-                  <div className="mt-1.5 h-2 w-4/5 rounded bg-slate-100" />
-                </div>
+                {item.kind === 'contract' ? (
+                  <DocThumbnail driveFileId={item.contract.driveFileId} />
+                ) : (
+                  <div className="flex-1 overflow-hidden p-3 text-[10px] leading-snug text-slate-400">
+                    <div className="h-2 w-3/4 rounded bg-slate-100" />
+                    <div className="mt-2 h-2 w-full rounded bg-slate-100" />
+                    <div className="mt-1.5 h-2 w-5/6 rounded bg-slate-100" />
+                    <div className="mt-1.5 h-2 w-full rounded bg-slate-100" />
+                    <div className="mt-1.5 h-2 w-2/3 rounded bg-slate-100" />
+                    <div className="mt-4 h-2 w-1/2 rounded bg-slate-100" />
+                    <div className="mt-2 h-2 w-full rounded bg-slate-100" />
+                    <div className="mt-1.5 h-2 w-4/5 rounded bg-slate-100" />
+                  </div>
+                )}
               </div>
               <div className="mt-2 truncate text-sm font-medium text-slate-900 group-hover:text-brand">
                 {itemTitle(item)}
@@ -175,6 +179,7 @@ export default function ContractsPage() {
       )}
 
       {/* -------------------------- Recent documents ------------------------- */}
+
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-medium text-slate-700">Recent documents</h2>
@@ -232,5 +237,39 @@ export default function ContractsPage() {
         )}
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Drive document thumbnail — shows a real preview for finalized contracts.
+// Falls back to the skeleton if the image fails to load (e.g. cookie blocked).
+// ---------------------------------------------------------------------------
+function DocThumbnail({ driveFileId }: { driveFileId: string }) {
+  const [failed, setFailed] = useState(false);
+  const src = `https://drive.google.com/thumbnail?id=${driveFileId}&sz=w176-h224`;
+
+  if (failed) {
+    return (
+      <div className="flex-1 overflow-hidden p-3 text-[10px] leading-snug text-slate-400">
+        <div className="h-2 w-3/4 rounded bg-slate-100" />
+        <div className="mt-2 h-2 w-full rounded bg-slate-100" />
+        <div className="mt-1.5 h-2 w-5/6 rounded bg-slate-100" />
+        <div className="mt-1.5 h-2 w-full rounded bg-slate-100" />
+        <div className="mt-1.5 h-2 w-2/3 rounded bg-slate-100" />
+        <div className="mt-4 h-2 w-1/2 rounded bg-slate-100" />
+        <div className="mt-2 h-2 w-full rounded bg-slate-100" />
+        <div className="mt-1.5 h-2 w-4/5 rounded bg-slate-100" />
+      </div>
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      className="h-full w-full object-cover object-top"
+      onError={() => setFailed(true)}
+    />
   );
 }
