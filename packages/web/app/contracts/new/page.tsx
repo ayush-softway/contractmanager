@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -56,6 +56,17 @@ function flattenVariables(tmpl: Template): TemplateVariable[] {
 }
 
 export default function NewContractPage() {
+  // `useSearchParams` (used inside the wizard to resume a ?draftId=…) requires a
+  // Suspense boundary during static prerender in Next.js 14, otherwise the
+  // production build fails. Wrap the wizard so the page can be statically shelled.
+  return (
+    <Suspense fallback={<p className="text-sm text-slate-500">Loading…</p>}>
+      <NewContractWizard />
+    </Suspense>
+  );
+}
+
+function NewContractWizard() {
   const router = useRouter();
   const search = useSearchParams();
   const draftIdParam = search.get('draftId');
