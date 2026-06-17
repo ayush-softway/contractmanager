@@ -85,7 +85,7 @@ export async function generateContractV2(
     let markdown = fs.readFileSync(mdPath, 'utf-8');
     const fieldMap = new Map(Object.entries(fields).map(([k, v]) => [k.toLowerCase(), v]));
     markdown = markdown.replace(/\{\{(\w+)\}\}/g, (_, key) =>
-      fieldMap.get(key.toLowerCase()) ?? `[${key} not provided]`
+      fieldMap.get(key.toLowerCase()) ?? `{{${key}}}`
     );
     renderedHtml = await marked.parse(markdown);
   }
@@ -120,15 +120,37 @@ export async function generateContractV2(
   };
 }
 
+/** Convert a raw SQLite row (snake_case) to the shared Contract shape (camelCase). */
+export function rowToContract(row: any) {
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    contractType: row.contract_type,
+    status: row.status,
+    driveFileId: row.drive_file_id,
+    pdfDriveFileId: row.pdf_drive_file_id,
+    docusignEnvelopeId: row.docusign_envelope_id,
+    importSourceJson: row.import_source_json,
+    fieldValuesJson: row.field_values_json,
+    renderedHtmlSnapshot: row.rendered_html_snapshot,
+    clauseChecksJson: row.clause_checks_json,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 export function getContract(contractId: string) {
-  return db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as any | undefined;
+  const row = db.prepare('SELECT * FROM contracts WHERE id = ?').get(contractId) as any | undefined;
+  return rowToContract(row);
 }
 
 export function listContracts(userId: string) {
   if (userId === 'demo-user') {
-    return db.prepare('SELECT * FROM contracts WHERE user_id IS NULL ORDER BY created_at DESC').all() as any[];
+    return (db.prepare('SELECT * FROM contracts WHERE user_id IS NULL ORDER BY created_at DESC').all() as any[]).map(rowToContract);
   }
-  return db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[];
+  return (db.prepare('SELECT * FROM contracts WHERE user_id = ? ORDER BY created_at DESC').all(userId) as any[]).map(rowToContract);
 }
 
 export function upsertDraft(

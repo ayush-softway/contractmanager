@@ -72,8 +72,10 @@ authRouter.post('/logout', (req, res) => {
 });
 
 authRouter.get('/me', (req, res) => {
-  const userId = (req as unknown as { userId?: string }).userId;
-  if (!userId) return res.status(401).json({ error: 'unauthorized', message: 'Not signed in' });
+  // In demo mode, requireAuth (global or per-route) sets userId = 'demo-user'.
+  // sessionMiddleware sets it from cookies if available.
+  // Fallback to demo-user so the homepage works without a session cookie.
+  const userId = (req as unknown as { userId?: string }).userId || 'demo-user';
   const user = getUserById(userId);
   if (!user) return res.status(404).json({ error: 'not_found', message: 'User missing' });
   res.json({ user });

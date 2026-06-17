@@ -21,7 +21,7 @@ export default function ReviewPage() {
   const [showSendModal, setShowSendModal] = useState(false);
   const [error, setError] = useState('');
 
-  // Clause checks (Phase 3)
+  // Clause checks
   const [clauseChecks, setClauseChecks] = useState<Record<string, boolean>>({});
   const [clauseNames, setClauseNames] = useState<Record<string, string>>({});
 
@@ -39,11 +39,11 @@ export default function ReviewPage() {
       .then(({ contract: c }) => {
         const raw = c as any;
         setContract(raw);
-        if (raw.rendered_html_snapshot) {
-          setRenderedHtml(raw.rendered_html_snapshot);
+        if (raw.renderedHtmlSnapshot) {
+          setRenderedHtml(raw.renderedHtmlSnapshot);
         }
-        if (raw.clause_checks_json) {
-          try { setClauseChecks(JSON.parse(raw.clause_checks_json)); } catch {}
+        if (raw.clauseChecksJson) {
+          try { setClauseChecks(JSON.parse(raw.clauseChecksJson)); } catch {}
         }
       })
       .catch((err) => setError(err.message))
@@ -95,8 +95,8 @@ export default function ReviewPage() {
         const { contract: updated } = await api.getContract(contract.id as string);
         const updatedRaw = updated as any;
         setContract(updatedRaw);
-        if (updatedRaw.clause_checks_json) {
-          try { setClauseChecks(JSON.parse(updatedRaw.clause_checks_json)); } catch {}
+        if (updatedRaw.clauseChecksJson) {
+          try { setClauseChecks(JSON.parse(updatedRaw.clauseChecksJson)); } catch {}
         }
       }
     } catch {
@@ -119,11 +119,15 @@ export default function ReviewPage() {
   }
   if (!contract) return <div className="p-8 text-center text-red-500">Contract not found</div>;
 
-  const fieldValues = typeof contract.field_values_json === 'string'
-    ? JSON.parse(contract.field_values_json)
-    : (contract.field_values_json ?? {});
+  const rawFieldValues = typeof contract.fieldValuesJson === 'string'
+    ? JSON.parse(contract.fieldValuesJson)
+    : (contract.fieldValuesJson ?? {});
 
-  const contractType = (contract.contract_type || 'msa-sow') as ContractType;
+  // Strip internal tracking keys from display
+  const fieldValues = { ...rawFieldValues };
+  delete fieldValues.__clause_modifications;
+
+  const contractType = (contract.contractType || 'msa-sow') as ContractType;
 
   const typeLabel =
     contractType === 'msa' ? 'Master Services Agreement'
@@ -151,8 +155,8 @@ export default function ReviewPage() {
   return (
     <AppShell>
       <div className="flex flex-col h-[calc(100vh-3rem)]">
-        {/* Top banner */}
-        <LegalLockBadge />
+        {/* Top banner — conditional */}
+        <LegalLockBadge allClausesPass={allClausesPass} status={contract.status} />
 
         {error && (
           <div className="mx-6 mt-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
@@ -165,7 +169,7 @@ export default function ReviewPage() {
           </div>
         )}
 
-        {/* Main 3-column layout */}
+        {/* Main layout */}
         <div className="flex flex-1 min-h-0">
           {/* Left panel — Contract Details + Clause Checks */}
           <div className="w-72 shrink-0 border-r border-slate-200 bg-white flex flex-col overflow-y-auto">
@@ -206,15 +210,17 @@ export default function ReviewPage() {
               </button>
               <button
                 onClick={() => setShowSendModal(true)}
-                disabled={sending || contract.status === 'sent'}
-                className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold text-sm transition-colors"
+                disabled={sending || contract.status === 'sent' || !allClausesPass}
+                className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 {sending ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Sending...
                   </span>
-                ) : contract.status === 'sent' ? 'Sent ✓' : 'Send to DocuSign →'}
+                ) : contract.status === 'sent' ? 'Sent ✓'
+                  : !allClausesPass ? '🔒 Resolve clauses first'
+                  : 'Send to DocuSign →'}
               </button>
             </div>
           </div>
@@ -222,7 +228,7 @@ export default function ReviewPage() {
           {/* Right panel — rendered contract or Drive iframe */}
           <div className="flex-1 flex flex-col min-w-0 bg-slate-100">
             <div className="flex-1 overflow-hidden flex flex-col">
-              {contract.drive_file_id === 'demo-mock-id' ? (
+              {contract.driveFileId === 'demo-mock-id' ? (
                 renderedHtml ? (
                   <ContractDoc
                   html={renderedHtml}
@@ -236,9 +242,9 @@ export default function ReviewPage() {
                     Generating preview...
                   </div>
                 )
-              ) : contract.drive_file_id ? (
+              ) : contract.driveFileId ? (
                 <iframe
-                  src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}
+                  src={`https://docs.google.com/document/d/${contract.driveFileId}/preview`}
                   className="w-full h-full border-0"
                   title="Contract Preview"
                 />
