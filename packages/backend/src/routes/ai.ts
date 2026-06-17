@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Request } from 'express';
 import { z } from 'zod';
 import fs from 'node:fs';
 import { marked } from 'marked';

@@ -58,7 +58,7 @@ export default function ContractDoc({
   const processedHtml = useMemo(() =>
     html.replace(
       /\{\{(\w+)\}\}/g,
-      '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: ">⚠ </span>'
+      '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: $1">⚠ $1</span>'
     ),
     [html]
   );
