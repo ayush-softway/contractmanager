@@ -14,6 +14,8 @@ export default function ContractDoc({
   html,
   highlightField,
   title = 'Contract',
+  contractId: _contractId,
+  onHtmlChange: _onHtmlChange,
 }: ContractDocProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -55,7 +57,12 @@ export default function ContractDoc({
   useEffect(() => {
     if (!ref.current) return;
     if (document.activeElement !== ref.current) {
-      ref.current.innerHTML = html;
+      // Highlight any unsubstituted {{variable}} tokens with amber badges
+      const processed = html.replace(
+        /\{\{(\w+)\}\}/g,
+        '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: $1">⚠ $1</span>'
+      );
+      ref.current.innerHTML = processed;
     }
   }, [html]);
 

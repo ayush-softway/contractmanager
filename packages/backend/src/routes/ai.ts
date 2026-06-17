@@ -63,26 +63,50 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
     const contract = getContract(contractId);
     if (!contract) return res.status(404).json({ error: 'not_found', message: 'Contract not found' });
 
-    const fields: Record<string, string> = typeof contract.field_values_json === 'string'
-      ? JSON.parse(contract.field_values_json)
-      : (contract.field_values_json ?? {});
+    const fields: Record<string, string> = typeof contract.fieldValuesJson === 'string'
+      ? JSON.parse(contract.fieldValuesJson)
+      : (contract.fieldValuesJson ?? {});
 
-    const result = await reviewChat(fields, message);
+    // Strip internal tracking key before sending to AI
+    const fieldsForAi = { ...fields };
+    delete fieldsForAi.__clause_modifications;
 
+    const result = await reviewChat(fieldsForAi, message);
+
+    // --- FIELD EDIT (patch) ---
     if (result.edited && result.patch) {
       const { field, newValue } = result.patch;
       fields[field] = newValue;
 
       // Re-render HTML from .md template with updated fields
-      const starter = getStarter(contract.contract_type);
+      const starter = getStarter(contract.contractType);
       if (starter) {
         const mdPath = getStarterMdPath(starter);
         let markdown = fs.readFileSync(mdPath, 'utf-8');
         const fieldMap = new Map(Object.entries(fields).map(([k, v]) => [k.toLowerCase(), String(v)]));
         markdown = markdown.replace(/\{\{(\w+)\}\}/g, (_, key) =>
-          fieldMap.get(key.toLowerCase()) ?? `[${key} not provided]`
+          fieldMap.get(key.toLowerCase()) ?? `{{${key}}}`
         );
-        const updatedHtml = await marked.parse(markdown);
+        let updatedHtml = await marked.parse(markdown);
+
+        // Re-apply stored clause modifications so adds/removes survive field edits
+        const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
+          fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
+
+        for (const mod of clauseMods) {
+          if (mod.type === 'add' && mod.body) {
+            const clauseHtml = `<h2>${mod.name}</h2>\n<p>${mod.body.replace(/\n/g, '</p>\n<p>')}</p>\n`;
+            const sigIdx = updatedHtml.lastIndexOf('<h2>Signat');
+            updatedHtml = sigIdx > 0
+              ? updatedHtml.slice(0, sigIdx) + clauseHtml + updatedHtml.slice(sigIdx)
+              : updatedHtml + '\n' + clauseHtml;
+          } else if (mod.type === 'remove') {
+            const esc = mod.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            updatedHtml = updatedHtml.replace(
+              new RegExp(`<h2>\\s*${esc}\\s*</h2>[\\s\\S]*?(?=<h2>|$)`, 'i'), '',
+            );
+          }
+        }
 
         const clauses = db.prepare('SELECT * FROM clauses').all() as any[];
         const clauseChecks = await verifyClauseCoverage(updatedHtml, clauses);
@@ -93,27 +117,32 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
           WHERE id = ?
         `).run(JSON.stringify(fields), updatedHtml, JSON.stringify(clauseChecks), contract.id);
 
-        return res.json({ reply: result.reply, edited: true, updatedHtml, patch: result.patch });
+        return res.json({ reply: result.reply, edited: true, updatedHtml, patch: result.patch, clauseChecks });
       }
     }
 
+    // --- CLAUSE ADD / REMOVE ---
     if (result.edited && result.clauseAction) {
       const action = result.clauseAction;
-      let currentHtml: string = typeof contract.rendered_html_snapshot === 'string'
-        ? contract.rendered_html_snapshot
+      let currentHtml: string = typeof contract.renderedHtmlSnapshot === 'string'
+        ? contract.renderedHtmlSnapshot
         : '';
+
+      // Load existing clause modifications
+      const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
+        fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
 
       let updatedHtml = currentHtml;
 
       if (action.type === 'add') {
-        // Append the new clause before any trailing signature/signatory block, or at end
+        clauseMods.push({ type: 'add', name: action.name, body: action.body });
         const clauseHtml = `<h2>${action.name}</h2>\n<p>${action.body.replace(/\n/g, '</p>\n<p>')}</p>\n`;
         const sigIdx = currentHtml.lastIndexOf('<h2>Signat');
         updatedHtml = sigIdx > 0
           ? currentHtml.slice(0, sigIdx) + clauseHtml + currentHtml.slice(sigIdx)
           : currentHtml + '\n' + clauseHtml;
       } else if (action.type === 'remove') {
-        // Strip the <h2>Name</h2> block and everything until the next <h2> or end
+        clauseMods.push({ type: 'remove', name: action.name });
         const escapedName = action.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         updatedHtml = currentHtml.replace(
           new RegExp(`<h2>\\s*${escapedName}\\s*</h2>[\\s\\S]*?(?=<h2>|$)`, 'i'),
@@ -121,16 +150,18 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
         );
       }
 
+      fields.__clause_modifications = JSON.stringify(clauseMods);
+
       const clauses = db.prepare('SELECT * FROM clauses').all() as any[];
       const clauseChecks = await verifyClauseCoverage(updatedHtml, clauses);
 
       db.prepare(`
         UPDATE contracts
-        SET rendered_html_snapshot = ?, clause_checks_json = ?, updated_at = datetime('now')
+        SET rendered_html_snapshot = ?, clause_checks_json = ?, field_values_json = ?, updated_at = datetime('now')
         WHERE id = ?
-      `).run(updatedHtml, JSON.stringify(clauseChecks), contract.id);
+      `).run(updatedHtml, JSON.stringify(clauseChecks), JSON.stringify(fields), contract.id);
 
-      return res.json({ reply: result.reply, edited: true, updatedHtml, clauseAction: action });
+      return res.json({ reply: result.reply, edited: true, updatedHtml, clauseAction: action, clauseChecks });
     }
 
     res.json({ reply: result.reply, edited: false });
