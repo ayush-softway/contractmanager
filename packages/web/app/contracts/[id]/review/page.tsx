@@ -19,7 +19,9 @@ export default function ReviewPage() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [error, setError] = useState('');
+  const [iframeKey, setIframeKey] = useState(0);
 
   // Clause checks
   const [clauseChecks, setClauseChecks] = useState<Record<string, boolean>>({});
@@ -91,6 +93,7 @@ export default function ReviewPage() {
       if (result.updatedHtml) {
         setRenderedHtml(result.updatedHtml);
         setLastPatchedField(result.patch?.field);
+        setIframeKey((k) => k + 1); // Force iframe reload to pick up Google Docs changes
         // Re-fetch contract to update left panel field values and clause checks
         const { contract: updated } = await api.getContract(contract.id as string);
         const updatedRaw = updated as any;
@@ -129,11 +132,15 @@ export default function ReviewPage() {
 
   const contractType = (contract.contractType || 'msa-sow') as ContractType;
 
-  const typeLabel =
-    contractType === 'msa' ? 'Master Services Agreement'
-    : contractType === 'msa-sow' ? 'MSA + SOW-01'
-    : contractType === 'sow-standalone' ? 'Standalone SOW'
-    : 'Change Order';
+  const CONTRACT_TYPE_LABELS: Record<string, string> = {
+    'msa': 'Master Services Agreement',
+    'msa-sow': 'MSA + SOW',
+    'sow-standalone': 'Standalone SOW',
+    'change-order': 'Change Order',
+    'nda': 'Non-Disclosure Agreement',
+  };
+
+  const typeLabel = CONTRACT_TYPE_LABELS[contractType] ?? contractType.replace(/-/g, ' ');
 
   const summaryFields = [
     { label: 'Client', value: fieldValues.client_legal_name },
@@ -209,8 +216,14 @@ export default function ReviewPage() {
                 ← Edit Fields
               </button>
               <button
-                onClick={() => setShowSendModal(true)}
-                disabled={sending || contract.status === 'sent' || !allClausesPass}
+                onClick={() => {
+                  if (!allClausesPass && Object.keys(clauseChecks).length > 0) {
+                    setShowOverrideModal(true);
+                  } else {
+                    setShowSendModal(true);
+                  }
+                }}
+                disabled={sending || contract.status === 'sent'}
                 className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 {sending ? (
@@ -219,7 +232,6 @@ export default function ReviewPage() {
                     Sending...
                   </span>
                 ) : contract.status === 'sent' ? 'Sent ✓'
-                  : !allClausesPass ? '🔒 Resolve clauses first'
                   : 'Send to DocuSign →'}
               </button>
             </div>
@@ -244,9 +256,11 @@ export default function ReviewPage() {
                 )
               ) : contract.driveFileId ? (
                 <iframe
-                  src={`https://docs.google.com/document/d/${contract.driveFileId}/preview`}
+                  key={iframeKey}
+                  src={`https://docs.google.com/document/d/${contract.driveFileId}/edit?rm=embedded`}
                   className="w-full h-full border-0"
-                  title="Contract Preview"
+                  title="Contract Editor"
+                  allow="clipboard-read; clipboard-write"
                 />
               ) : (
                 <div className="p-12 text-center text-slate-400">
@@ -354,6 +368,53 @@ export default function ReviewPage() {
                 className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
               >
                 Send →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Override confirmation — shown when clause checks fail */}
+      {showOverrideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-200">
+              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <span>⚠️</span> Clause checks incomplete
+              </h2>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <p className="text-sm text-slate-600">
+                The following clause checks haven't passed:
+              </p>
+              <div className="space-y-1.5">
+                {Object.entries(clauseChecks)
+                  .filter(([, v]) => !v)
+                  .map(([id]) => (
+                    <div key={id} className="flex items-center gap-2 text-sm">
+                      <span className="text-red-500">✗</span>
+                      <span className="text-slate-700 font-medium">{clauseNames[id] ?? id}</span>
+                    </div>
+                  ))}
+              </div>
+              <p className="text-xs text-slate-400 pt-2">
+                Are you sure you want to send this contract for signature without these clauses?
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowOverrideModal(false)}
+                className="flex-1 border border-slate-200 text-slate-700 py-2.5 rounded-xl font-medium text-sm hover:bg-slate-50 transition-colors"
+              >
+                Go back
+              </button>
+              <button
+                onClick={() => {
+                  setShowOverrideModal(false);
+                  setShowSendModal(true);
+                }}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
+              >
+                Send anyway
               </button>
             </div>
           </div>

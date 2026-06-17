@@ -7,6 +7,8 @@ import { getContract } from '../services/contracts.js';
 import { intakeChat, reviewChat, verifyClauseCoverage, uploadChat } from '../services/ai.js';
 import { getStarter, getStarterMdPath } from '../services/starters.js';
 import { db } from '../db/client.js';
+import { appendText } from '../google/docs.js';
+import { docsFor } from '../google/clients.js';
 
 export const aiRouter = Router();
 
@@ -59,9 +61,12 @@ const ReviewChatSchema = z.object({
 aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
   try {
     const { contractId, message } = ReviewChatSchema.parse(req.body);
+    const userId = (req as Request & { userId: string }).userId;
 
     const contract = getContract(contractId);
     if (!contract) return res.status(404).json({ error: 'not_found', message: 'Contract not found' });
+
+    const isDemoDoc = !contract.driveFileId || contract.driveFileId === 'demo-mock-id';
 
     const fields: Record<string, string> = typeof contract.fieldValuesJson === 'string'
       ? JSON.parse(contract.fieldValuesJson)
@@ -76,9 +81,9 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
     // --- FIELD EDIT (patch) ---
     if (result.edited && result.patch) {
       const { field, newValue } = result.patch;
+      const oldValue = fields[field]; // capture BEFORE overwrite
       fields[field] = newValue;
 
-      // Re-render HTML from .md template with updated fields
       const starter = getStarter(contract.contractType);
       if (starter) {
         const mdPath = getStarterMdPath(starter);
@@ -89,7 +94,6 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
         );
         let updatedHtml = await marked.parse(markdown);
 
-        // Re-apply stored clause modifications so adds/removes survive field edits
         const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
           fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
 
@@ -105,6 +109,26 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
             updatedHtml = updatedHtml.replace(
               new RegExp(`<h2>\\s*${esc}\\s*</h2>[\\s\\S]*?(?=<h2>|$)`, 'i'), '',
             );
+          }
+        }
+
+        // Sync field edit to live Google Doc (best-effort, skip in demo)
+        if (!isDemoDoc && oldValue && oldValue !== newValue) {
+          try {
+            const docs = docsFor(userId);
+            await docs.documents.batchUpdate({
+              documentId: contract.driveFileId,
+              requestBody: {
+                requests: [{
+                  replaceAllText: {
+                    containsText: { text: oldValue, matchCase: false },
+                    replaceText: newValue,
+                  },
+                }],
+              },
+            });
+          } catch (syncErr) {
+            console.error('Google Docs field sync failed (non-fatal):', syncErr);
           }
         }
 
@@ -128,7 +152,6 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
         ? contract.renderedHtmlSnapshot
         : '';
 
-      // Load existing clause modifications
       const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
         fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
 
@@ -141,6 +164,15 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
         updatedHtml = sigIdx > 0
           ? currentHtml.slice(0, sigIdx) + clauseHtml + currentHtml.slice(sigIdx)
           : currentHtml + '\n' + clauseHtml;
+
+        // Sync clause to live Google Doc (best-effort)
+        if (!isDemoDoc) {
+          try {
+            await appendText(userId, contract.driveFileId, `\n\n${action.name}\n${action.body}\n`);
+          } catch (syncErr) {
+            console.error('Google Docs clause sync failed (non-fatal):', syncErr);
+          }
+        }
       } else if (action.type === 'remove') {
         clauseMods.push({ type: 'remove', name: action.name });
         const escapedName = action.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

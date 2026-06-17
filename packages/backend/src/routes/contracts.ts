@@ -149,7 +149,7 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
     });
 
     res.json({
-      contract: { ...contract, status: 'sent', docusign_envelope_id: envelope.envelopeId },
+      contract: { ...contract, status: 'sent', docusignEnvelopeId: envelope.envelopeId },
       envelope,
       message: `✅ Envelope created — sent to ${signerEmail}`,
     });

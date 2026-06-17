@@ -282,7 +282,10 @@ export async function reviewChat(
   message: string,
 ): Promise<{ reply: string; patch?: { field: string; newValue: string }; clauseAction?: { type: 'add'; name: string; body: string } | { type: 'remove'; name: string }; edited: boolean }> {
   try {
-    const fieldContext = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
+    // Defensive: strip internal tracking keys so AI never sees them
+    const cleanFields = { ...fields };
+    delete cleanFields.__clause_modifications;
+    const fieldContext = Object.entries(cleanFields).map(([k, v]) => `${k}: ${v}`).join('\n');
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 2048,
