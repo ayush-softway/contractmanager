@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 
 interface ContractDocProps {
   html: string;
@@ -14,6 +14,8 @@ export default function ContractDoc({
   html,
   highlightField,
   title = 'Contract',
+  contractId: _contractId,
+  onHtmlChange: _onHtmlChange,
 }: ContractDocProps) {
   const ref = useRef<HTMLDivElement>(null);
 
@@ -51,13 +53,15 @@ export default function ContractDoc({
     });
   }, [highlightField, html]);
 
-  // Sync external html prop into contentEditable (only when not focused)
-  useEffect(() => {
-    if (!ref.current) return;
-    if (document.activeElement !== ref.current) {
-      ref.current.innerHTML = html;
-    }
-  }, [html]);
+  // Process unsubstituted {{variable}} tokens into amber badges via useMemo
+  // so dangerouslySetInnerHTML always receives the processed string.
+  const processedHtml = useMemo(() =>
+    html.replace(
+      /\{\{(\w+)\}\}/g,
+      '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: ">⚠ </span>'
+    ),
+    [html]
+  );
 
   const handleShare = () => {
     if (shareEmail.trim()) {
@@ -290,7 +294,7 @@ export default function ContractDoc({
           style={{
             boxShadow: '0 1px 3px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.04)',
           }}
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: processedHtml }}
         />
       </div>
 

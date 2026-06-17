@@ -64,7 +64,7 @@ export default function ContractsListPage() {
               <div>
                 <p className="font-medium text-slate-900">{c.title}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  {new Date(c.created_at).toLocaleString()}
+                  {new Date(c.createdAt).toLocaleString()}
                 </p>
               </div>
               <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusColors[c.status] || 'bg-slate-100 text-slate-600'}`}>

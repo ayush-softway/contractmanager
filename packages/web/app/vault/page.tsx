@@ -20,6 +20,14 @@ const statusLabels: Record<string, string> = {
   signed: 'Signed',
 };
 
+const CONTRACT_TYPE_LABELS: Record<string, string> = {
+  'msa': 'Master Services Agreement',
+  'msa-sow': 'MSA + SOW',
+  'sow-standalone': 'Standalone SOW',
+  'change-order': 'Change Order',
+  'nda': 'Non-Disclosure Agreement',
+};
+
 export default function VaultPage() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,7 +88,7 @@ export default function VaultPage() {
                   <tr key={c.id} className={`${i > 0 ? 'border-t border-slate-100' : ''} hover:bg-slate-50 transition-colors`}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-slate-900">{c.title}</p>
-                      <p className="text-xs text-slate-400 capitalize">{c.contractType?.replace(/-/g, ' ')}</p>
+                      <p className="text-xs text-slate-400">{CONTRACT_TYPE_LABELS[c.contractType] ?? c.contractType?.replace(/-/g, ' ')}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusColors[c.status] ?? 'bg-slate-100 text-slate-600'}`}>

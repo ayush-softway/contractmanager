@@ -19,9 +19,11 @@ export default function ReviewPage() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [showSendModal, setShowSendModal] = useState(false);
+  const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [error, setError] = useState('');
+  const [iframeKey, setIframeKey] = useState(0);
 
-  // Clause checks (Phase 3)
+  // Clause checks
   const [clauseChecks, setClauseChecks] = useState<Record<string, boolean>>({});
   const [clauseNames, setClauseNames] = useState<Record<string, string>>({});
 
@@ -39,11 +41,11 @@ export default function ReviewPage() {
       .then(({ contract: c }) => {
         const raw = c as any;
         setContract(raw);
-        if (raw.rendered_html_snapshot) {
-          setRenderedHtml(raw.rendered_html_snapshot);
+        if (raw.renderedHtmlSnapshot) {
+          setRenderedHtml(raw.renderedHtmlSnapshot);
         }
-        if (raw.clause_checks_json) {
-          try { setClauseChecks(JSON.parse(raw.clause_checks_json)); } catch {}
+        if (raw.clauseChecksJson) {
+          try { setClauseChecks(JSON.parse(raw.clauseChecksJson)); } catch {}
         }
       })
       .catch((err) => setError(err.message))
@@ -91,12 +93,13 @@ export default function ReviewPage() {
       if (result.updatedHtml) {
         setRenderedHtml(result.updatedHtml);
         setLastPatchedField(result.patch?.field);
+        setIframeKey((k) => k + 1); // Force iframe reload to pick up Google Docs changes
         // Re-fetch contract to update left panel field values and clause checks
         const { contract: updated } = await api.getContract(contract.id as string);
         const updatedRaw = updated as any;
         setContract(updatedRaw);
-        if (updatedRaw.clause_checks_json) {
-          try { setClauseChecks(JSON.parse(updatedRaw.clause_checks_json)); } catch {}
+        if (updatedRaw.clauseChecksJson) {
+          try { setClauseChecks(JSON.parse(updatedRaw.clauseChecksJson)); } catch {}
         }
       }
     } catch {
@@ -119,17 +122,25 @@ export default function ReviewPage() {
   }
   if (!contract) return <div className="p-8 text-center text-red-500">Contract not found</div>;
 
-  const fieldValues = typeof contract.field_values_json === 'string'
-    ? JSON.parse(contract.field_values_json)
-    : (contract.field_values_json ?? {});
+  const rawFieldValues = typeof contract.fieldValuesJson === 'string'
+    ? JSON.parse(contract.fieldValuesJson)
+    : (contract.fieldValuesJson ?? {});
 
-  const contractType = (contract.contract_type || 'msa-sow') as ContractType;
+  // Strip internal tracking keys from display
+  const fieldValues = { ...rawFieldValues };
+  delete fieldValues.__clause_modifications;
 
-  const typeLabel =
-    contractType === 'msa' ? 'Master Services Agreement'
-    : contractType === 'msa-sow' ? 'MSA + SOW-01'
-    : contractType === 'sow-standalone' ? 'Standalone SOW'
-    : 'Change Order';
+  const contractType = (contract.contractType || 'msa-sow') as ContractType;
+
+  const CONTRACT_TYPE_LABELS: Record<string, string> = {
+    'msa': 'Master Services Agreement',
+    'msa-sow': 'MSA + SOW',
+    'sow-standalone': 'Standalone SOW',
+    'change-order': 'Change Order',
+    'nda': 'Non-Disclosure Agreement',
+  };
+
+  const typeLabel = CONTRACT_TYPE_LABELS[contractType] ?? contractType.replace(/-/g, ' ');
 
   const summaryFields = [
     { label: 'Client', value: fieldValues.client_legal_name },
@@ -151,8 +162,8 @@ export default function ReviewPage() {
   return (
     <AppShell>
       <div className="flex flex-col h-[calc(100vh-3rem)]">
-        {/* Top banner */}
-        <LegalLockBadge />
+        {/* Top banner — conditional */}
+        <LegalLockBadge allClausesPass={allClausesPass} status={contract.status} />
 
         {error && (
           <div className="mx-6 mt-2 bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg text-sm">
@@ -165,7 +176,7 @@ export default function ReviewPage() {
           </div>
         )}
 
-        {/* Main 3-column layout */}
+        {/* Main layout */}
         <div className="flex flex-1 min-h-0">
           {/* Left panel — Contract Details + Clause Checks */}
           <div className="w-72 shrink-0 border-r border-slate-200 bg-white flex flex-col overflow-y-auto">
@@ -205,16 +216,23 @@ export default function ReviewPage() {
                 ← Edit Fields
               </button>
               <button
-                onClick={() => setShowSendModal(true)}
+                onClick={() => {
+                  if (!allClausesPass && Object.keys(clauseChecks).length > 0) {
+                    setShowOverrideModal(true);
+                  } else {
+                    setShowSendModal(true);
+                  }
+                }}
                 disabled={sending || contract.status === 'sent'}
-                className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white py-2 rounded-lg font-bold text-sm transition-colors"
+                className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-2 rounded-lg font-bold text-sm transition-colors"
               >
                 {sending ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Sending...
                   </span>
-                ) : contract.status === 'sent' ? 'Sent ✓' : 'Send to DocuSign →'}
+                ) : contract.status === 'sent' ? 'Sent ✓'
+                  : 'Send to DocuSign →'}
               </button>
             </div>
           </div>
@@ -222,7 +240,7 @@ export default function ReviewPage() {
           {/* Right panel — rendered contract or Drive iframe */}
           <div className="flex-1 flex flex-col min-w-0 bg-slate-100">
             <div className="flex-1 overflow-hidden flex flex-col">
-              {contract.drive_file_id === 'demo-mock-id' ? (
+              {contract.driveFileId === 'demo-mock-id' ? (
                 renderedHtml ? (
                   <ContractDoc
                   html={renderedHtml}
@@ -236,11 +254,13 @@ export default function ReviewPage() {
                     Generating preview...
                   </div>
                 )
-              ) : contract.drive_file_id ? (
+              ) : contract.driveFileId ? (
                 <iframe
-                  src={`https://docs.google.com/document/d/${contract.drive_file_id}/preview`}
+                  key={iframeKey}
+                  src={`https://docs.google.com/document/d/${contract.driveFileId}/edit?rm=embedded`}
                   className="w-full h-full border-0"
-                  title="Contract Preview"
+                  title="Contract Editor"
+                  allow="clipboard-read; clipboard-write"
                 />
               ) : (
                 <div className="p-12 text-center text-slate-400">
@@ -348,6 +368,53 @@ export default function ReviewPage() {
                 className="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
               >
                 Send →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Override confirmation — shown when clause checks fail */}
+      {showOverrideModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
+            <div className="px-6 py-5 border-b border-slate-200">
+              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+                <span>⚠️</span> Clause checks incomplete
+              </h2>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <p className="text-sm text-slate-600">
+                The following clause checks haven't passed:
+              </p>
+              <div className="space-y-1.5">
+                {Object.entries(clauseChecks)
+                  .filter(([, v]) => !v)
+                  .map(([id]) => (
+                    <div key={id} className="flex items-center gap-2 text-sm">
+                      <span className="text-red-500">✗</span>
+                      <span className="text-slate-700 font-medium">{clauseNames[id] ?? id}</span>
+                    </div>
+                  ))}
+              </div>
+              <p className="text-xs text-slate-400 pt-2">
+                Are you sure you want to send this contract for signature without these clauses?
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-3">
+              <button
+                onClick={() => setShowOverrideModal(false)}
+                className="flex-1 border border-slate-200 text-slate-700 py-2.5 rounded-xl font-medium text-sm hover:bg-slate-50 transition-colors"
+              >
+                Go back
+              </button>
+              <button
+                onClick={() => {
+                  setShowOverrideModal(false);
+                  setShowSendModal(true);
+                }}
+                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
+              >
+                Send anyway
               </button>
             </div>
           </div>

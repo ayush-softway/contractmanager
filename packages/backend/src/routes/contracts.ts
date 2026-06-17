@@ -108,28 +108,26 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
     }
 
     // Parse field values to get signer info
-    const fieldValues = typeof contract.field_values_json === 'string'
-      ? JSON.parse(contract.field_values_json)
-      : (contract.field_values_json ?? {});
+    const fieldValues = typeof contract.fieldValuesJson === 'string'
+      ? JSON.parse(contract.fieldValuesJson)
+      : (contract.fieldValuesJson ?? {});
 
     const signerEmail = fieldValues.client_contact_email || 'signer@example.com';
     const signerName = fieldValues.client_contact_name || 'Signer';
 
     let pdfBuffer: Buffer;
     try {
-      if (!contract.drive_file_id || contract.drive_file_id === 'demo-mock-id') {
-        return res.status(400).json({
-          error: 'no_drive_file',
-          message: 'This contract has no Google Drive document. Generate it first.',
-        });
+      if (contract.driveFileId === 'demo-mock-id') {
+        pdfBuffer = Buffer.from('mock-pdf');
+      } else {
+        pdfBuffer = await exportAsPdf(userId, contract.driveFileId);
       }
-      pdfBuffer = await exportAsPdf(userId, contract.drive_file_id);
     } catch (pdfErr) {
       // Error state: PDF export fails — contract is never lost
       return res.status(200).json({
         contract,
         warning: 'PDF export failed — open in Drive instead.',
-        driveUrl: `https://docs.google.com/document/d/${contract.drive_file_id}/edit`,
+        driveUrl: `https://docs.google.com/document/d/${contract.driveFileId}/edit`,
       });
     }
 
@@ -141,7 +139,7 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
       return res.status(200).json({
         contract,
         warning: 'DocuSign unavailable — contract saved to Drive. Send manually.',
-        driveUrl: `https://docs.google.com/document/d/${contract.drive_file_id}/edit`,
+        driveUrl: `https://docs.google.com/document/d/${contract.driveFileId}/edit`,
       });
     }
 
@@ -151,7 +149,7 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
     });
 
     res.json({
-      contract: { ...contract, status: 'sent', docusign_envelope_id: envelope.envelopeId },
+      contract: { ...contract, status: 'sent', docusignEnvelopeId: envelope.envelopeId },
       envelope,
       message: `✅ Envelope created — sent to ${signerEmail}`,
     });

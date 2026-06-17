@@ -282,7 +282,10 @@ export async function reviewChat(
   message: string,
 ): Promise<{ reply: string; patch?: { field: string; newValue: string }; clauseAction?: { type: 'add'; name: string; body: string } | { type: 'remove'; name: string }; edited: boolean }> {
   try {
-    const fieldContext = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
+    // Defensive: strip internal tracking keys so AI never sees them
+    const cleanFields = { ...fields };
+    delete cleanFields.__clause_modifications;
+    const fieldContext = Object.entries(cleanFields).map(([k, v]) => `${k}: ${v}`).join('\n');
     const response = await client.messages.create({
       model: MODEL,
       max_tokens: 2048,
@@ -304,18 +307,45 @@ export async function reviewChat(
   }
 }
 
+/**
+ * Clause coverage verification using distinctive keyword sets.
+ * Non-negotiable: ALL keywords must be present.
+ * Flexible: at least half the keywords.
+ * Optional: any keyword, or auto-pass.
+ */
+const CLAUSE_KEYWORDS: Record<string, string[]> = {
+  'clause-ip': ['intellectual property', 'exclusive property', 'full payment'],
+  'clause-liability': ['liability', 'exceed', 'fees paid', 'damages'],
+  'clause-payment': ['payment', 'invoic', 'days'],
+  'clause-confidentiality': ['confidential', 'unauthorized', 'disclose'],
+  'clause-travel': ['travel', 'expense', 'reimburse'],
+};
+
 export async function verifyClauseCoverage(
   renderedHtml: string,
   clauses: Array<{ id: string; name: string; body: string; type: string }>,
 ): Promise<Record<string, boolean>> {
   const results: Record<string, boolean> = {};
   const htmlLower = renderedHtml.toLowerCase();
+
   for (const clause of clauses) {
-    if (clause.type === 'non-negotiable') {
-      const keyPhrase = clause.body.slice(0, 30).toLowerCase();
-      results[clause.id] = htmlLower.includes(keyPhrase);
+    const keywords = CLAUSE_KEYWORDS[clause.id];
+
+    if (clause.type === 'optional') {
+      results[clause.id] = keywords
+        ? keywords.some(kw => htmlLower.includes(kw))
+        : true;
+    } else if (clause.type === 'flexible') {
+      if (!keywords) { results[clause.id] = true; continue; }
+      const hits = keywords.filter(kw => htmlLower.includes(kw)).length;
+      results[clause.id] = hits >= Math.ceil(keywords.length / 2);
     } else {
-      results[clause.id] = true;
+      // non-negotiable — ALL keywords must be present
+      if (!keywords) {
+        results[clause.id] = htmlLower.includes(clause.name.toLowerCase());
+        continue;
+      }
+      results[clause.id] = keywords.every(kw => htmlLower.includes(kw));
     }
   }
   return results;

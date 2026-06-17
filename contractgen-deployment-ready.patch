@@ -1,0 +1,377 @@
+diff --git a/packages/backend/src/routes/ai.ts b/packages/backend/src/routes/ai.ts
+index 597e554..a02a57d 100644
+--- a/packages/backend/src/routes/ai.ts
++++ b/packages/backend/src/routes/ai.ts
+@@ -7,6 +7,8 @@ import { getContract } from '../services/contracts.js';
+ import { intakeChat, reviewChat, verifyClauseCoverage, uploadChat } from '../services/ai.js';
+ import { getStarter, getStarterMdPath } from '../services/starters.js';
+ import { db } from '../db/client.js';
++import { appendText } from '../google/docs.js';
++import { docsFor } from '../google/clients.js';
+ 
+ export const aiRouter = Router();
+ 
+@@ -59,10 +61,13 @@ const ReviewChatSchema = z.object({
+ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+   try {
+     const { contractId, message } = ReviewChatSchema.parse(req.body);
++    const userId = (req as Request & { userId: string }).userId;
+ 
+     const contract = getContract(contractId);
+     if (!contract) return res.status(404).json({ error: 'not_found', message: 'Contract not found' });
+ 
++    const isDemoDoc = !contract.driveFileId || contract.driveFileId === 'demo-mock-id';
++
+     const fields: Record<string, string> = typeof contract.fieldValuesJson === 'string'
+       ? JSON.parse(contract.fieldValuesJson)
+       : (contract.fieldValuesJson ?? {});
+@@ -76,9 +81,9 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+     // --- FIELD EDIT (patch) ---
+     if (result.edited && result.patch) {
+       const { field, newValue } = result.patch;
++      const oldValue = fields[field]; // capture BEFORE overwrite
+       fields[field] = newValue;
+ 
+-      // Re-render HTML from .md template with updated fields
+       const starter = getStarter(contract.contractType);
+       if (starter) {
+         const mdPath = getStarterMdPath(starter);
+@@ -89,7 +94,6 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+         );
+         let updatedHtml = await marked.parse(markdown);
+ 
+-        // Re-apply stored clause modifications so adds/removes survive field edits
+         const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
+           fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
+ 
+@@ -108,6 +112,26 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+           }
+         }
+ 
++        // Sync field edit to live Google Doc (best-effort, skip in demo)
++        if (!isDemoDoc && oldValue && oldValue !== newValue) {
++          try {
++            const docs = docsFor(userId);
++            await docs.documents.batchUpdate({
++              documentId: contract.driveFileId,
++              requestBody: {
++                requests: [{
++                  replaceAllText: {
++                    containsText: { text: oldValue, matchCase: false },
++                    replaceText: newValue,
++                  },
++                }],
++              },
++            });
++          } catch (syncErr) {
++            console.error('Google Docs field sync failed (non-fatal):', syncErr);
++          }
++        }
++
+         const clauses = db.prepare('SELECT * FROM clauses').all() as any[];
+         const clauseChecks = await verifyClauseCoverage(updatedHtml, clauses);
+ 
+@@ -128,7 +152,6 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+         ? contract.renderedHtmlSnapshot
+         : '';
+ 
+-      // Load existing clause modifications
+       const clauseMods: Array<{ type: 'add' | 'remove'; name: string; body?: string }> =
+         fields.__clause_modifications ? JSON.parse(fields.__clause_modifications) : [];
+ 
+@@ -141,6 +164,15 @@ aiRouter.post('/review-chat', requireAuth, async (req, res, next) => {
+         updatedHtml = sigIdx > 0
+           ? currentHtml.slice(0, sigIdx) + clauseHtml + currentHtml.slice(sigIdx)
+           : currentHtml + '\n' + clauseHtml;
++
++        // Sync clause to live Google Doc (best-effort)
++        if (!isDemoDoc) {
++          try {
++            await appendText(userId, contract.driveFileId, `\n\n${action.name}\n${action.body}\n`);
++          } catch (syncErr) {
++            console.error('Google Docs clause sync failed (non-fatal):', syncErr);
++          }
++        }
+       } else if (action.type === 'remove') {
+         clauseMods.push({ type: 'remove', name: action.name });
+         const escapedName = action.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+diff --git a/packages/backend/src/routes/contracts.ts b/packages/backend/src/routes/contracts.ts
+index b9d5831..d0dbeef 100644
+--- a/packages/backend/src/routes/contracts.ts
++++ b/packages/backend/src/routes/contracts.ts
+@@ -149,7 +149,7 @@ contractsRouter.post('/:id/send-for-signature', requireAuth, async (req, res, ne
+     });
+ 
+     res.json({
+-      contract: { ...contract, status: 'sent', docusign_envelope_id: envelope.envelopeId },
++      contract: { ...contract, status: 'sent', docusignEnvelopeId: envelope.envelopeId },
+       envelope,
+       message: `✅ Envelope created — sent to ${signerEmail}`,
+     });
+diff --git a/packages/backend/src/routes/upload.ts b/packages/backend/src/routes/upload.ts
+index e470cf2..b3c2d23 100644
+--- a/packages/backend/src/routes/upload.ts
++++ b/packages/backend/src/routes/upload.ts
+@@ -81,6 +81,7 @@ uploadRouter.post('/j3a/finalize', async (req, res, next) => {
+   try {
+     const { resolutions, clauses, title } = J3AFinalizeSchema.parse(req.body);
+     const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
++    const dbUserId = userId === 'demo-user' ? null : userId;
+     const contractId = nanoid();
+     const contractTitle = title ?? 'Resolved Redlines — Client MSA';
+ 
+@@ -100,7 +101,7 @@ uploadRouter.post('/j3a/finalize', async (req, res, next) => {
+     db.prepare(`
+       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+-    `).run(contractId, userId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, 'demo-mock-id');
++    `).run(contractId, dbUserId, contractTitle, 'msa', 'generated', JSON.stringify({ source: 'j3a-redlines', resolutions }), renderedHtml, 'demo-mock-id');
+ 
+     res.json({ contractId });
+   } catch (err) {
+@@ -121,6 +122,7 @@ uploadRouter.post('/j3b/finalize', async (req, res, next) => {
+   try {
+     const { sowDraft, risks, clientName } = J3BFinalizeSchema.parse(req.body);
+     const userId = (req as Request & { userId?: string }).userId ?? 'demo-user';
++    const dbUserId = userId === 'demo-user' ? null : userId;
+     const contractId = nanoid();
+     const contractTitle = clientName ? `SOW — ${clientName}` : 'Generated SOW — Client MSA';
+ 
+@@ -132,7 +134,7 @@ uploadRouter.post('/j3b/finalize', async (req, res, next) => {
+     db.prepare(`
+       INSERT INTO contracts (id, user_id, title, contract_type, status, field_values_json, rendered_html_snapshot, drive_file_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+-    `).run(contractId, userId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, 'demo-mock-id');
++    `).run(contractId, dbUserId, contractTitle, 'sow-standalone', 'generated', JSON.stringify({ source: 'j3b-msa', risks }), renderedHtml, 'demo-mock-id');
+ 
+     res.json({ contractId });
+   } catch (err) {
+diff --git a/packages/backend/src/services/ai.ts b/packages/backend/src/services/ai.ts
+index 4e272e4..0c7c7da 100644
+--- a/packages/backend/src/services/ai.ts
++++ b/packages/backend/src/services/ai.ts
+@@ -282,7 +282,10 @@ export async function reviewChat(
+   message: string,
+ ): Promise<{ reply: string; patch?: { field: string; newValue: string }; clauseAction?: { type: 'add'; name: string; body: string } | { type: 'remove'; name: string }; edited: boolean }> {
+   try {
+-    const fieldContext = Object.entries(fields).map(([k, v]) => `${k}: ${v}`).join('\n');
++    // Defensive: strip internal tracking keys so AI never sees them
++    const cleanFields = { ...fields };
++    delete cleanFields.__clause_modifications;
++    const fieldContext = Object.entries(cleanFields).map(([k, v]) => `${k}: ${v}`).join('\n');
+     const response = await client.messages.create({
+       model: MODEL,
+       max_tokens: 2048,
+diff --git a/packages/web/app/contracts/[id]/review/page.tsx b/packages/web/app/contracts/[id]/review/page.tsx
+index 1f8de35..0ca88f8 100644
+--- a/packages/web/app/contracts/[id]/review/page.tsx
++++ b/packages/web/app/contracts/[id]/review/page.tsx
+@@ -19,7 +19,9 @@ export default function ReviewPage() {
+   const [sending, setSending] = useState(false);
+   const [sendResult, setSendResult] = useState<string | null>(null);
+   const [showSendModal, setShowSendModal] = useState(false);
++  const [showOverrideModal, setShowOverrideModal] = useState(false);
+   const [error, setError] = useState('');
++  const [iframeKey, setIframeKey] = useState(0);
+ 
+   // Clause checks
+   const [clauseChecks, setClauseChecks] = useState<Record<string, boolean>>({});
+@@ -91,6 +93,7 @@ export default function ReviewPage() {
+       if (result.updatedHtml) {
+         setRenderedHtml(result.updatedHtml);
+         setLastPatchedField(result.patch?.field);
++        setIframeKey((k) => k + 1); // Force iframe reload to pick up Google Docs changes
+         // Re-fetch contract to update left panel field values and clause checks
+         const { contract: updated } = await api.getContract(contract.id as string);
+         const updatedRaw = updated as any;
+@@ -129,11 +132,15 @@ export default function ReviewPage() {
+ 
+   const contractType = (contract.contractType || 'msa-sow') as ContractType;
+ 
+-  const typeLabel =
+-    contractType === 'msa' ? 'Master Services Agreement'
+-    : contractType === 'msa-sow' ? 'MSA + SOW-01'
+-    : contractType === 'sow-standalone' ? 'Standalone SOW'
+-    : 'Change Order';
++  const CONTRACT_TYPE_LABELS: Record<string, string> = {
++    'msa': 'Master Services Agreement',
++    'msa-sow': 'MSA + SOW',
++    'sow-standalone': 'Standalone SOW',
++    'change-order': 'Change Order',
++    'nda': 'Non-Disclosure Agreement',
++  };
++
++  const typeLabel = CONTRACT_TYPE_LABELS[contractType] ?? contractType.replace(/-/g, ' ');
+ 
+   const summaryFields = [
+     { label: 'Client', value: fieldValues.client_legal_name },
+@@ -209,8 +216,14 @@ export default function ReviewPage() {
+                 ← Edit Fields
+               </button>
+               <button
+-                onClick={() => setShowSendModal(true)}
+-                disabled={sending || contract.status === 'sent' || !allClausesPass}
++                onClick={() => {
++                  if (!allClausesPass && Object.keys(clauseChecks).length > 0) {
++                    setShowOverrideModal(true);
++                  } else {
++                    setShowSendModal(true);
++                  }
++                }}
++                disabled={sending || contract.status === 'sent'}
+                 className="w-full bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white py-2 rounded-lg font-bold text-sm transition-colors"
+               >
+                 {sending ? (
+@@ -219,7 +232,6 @@ export default function ReviewPage() {
+                     Sending...
+                   </span>
+                 ) : contract.status === 'sent' ? 'Sent ✓'
+-                  : !allClausesPass ? '🔒 Resolve clauses first'
+                   : 'Send to DocuSign →'}
+               </button>
+             </div>
+@@ -244,9 +256,11 @@ export default function ReviewPage() {
+                 )
+               ) : contract.driveFileId ? (
+                 <iframe
+-                  src={`https://docs.google.com/document/d/${contract.driveFileId}/preview`}
++                  key={iframeKey}
++                  src={`https://docs.google.com/document/d/${contract.driveFileId}/edit?rm=embedded`}
+                   className="w-full h-full border-0"
+-                  title="Contract Preview"
++                  title="Contract Editor"
++                  allow="clipboard-read; clipboard-write"
+                 />
+               ) : (
+                 <div className="p-12 text-center text-slate-400">
+@@ -359,6 +373,53 @@ export default function ReviewPage() {
+           </div>
+         </div>
+       )}
++      {/* Override confirmation — shown when clause checks fail */}
++      {showOverrideModal && (
++        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
++          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 overflow-hidden">
++            <div className="px-6 py-5 border-b border-slate-200">
++              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
++                <span>⚠️</span> Clause checks incomplete
++              </h2>
++            </div>
++            <div className="px-6 py-4 space-y-3">
++              <p className="text-sm text-slate-600">
++                The following clause checks haven't passed:
++              </p>
++              <div className="space-y-1.5">
++                {Object.entries(clauseChecks)
++                  .filter(([, v]) => !v)
++                  .map(([id]) => (
++                    <div key={id} className="flex items-center gap-2 text-sm">
++                      <span className="text-red-500">✗</span>
++                      <span className="text-slate-700 font-medium">{clauseNames[id] ?? id}</span>
++                    </div>
++                  ))}
++              </div>
++              <p className="text-xs text-slate-400 pt-2">
++                Are you sure you want to send this contract for signature without these clauses?
++              </p>
++            </div>
++            <div className="px-6 pb-5 flex gap-3">
++              <button
++                onClick={() => setShowOverrideModal(false)}
++                className="flex-1 border border-slate-200 text-slate-700 py-2.5 rounded-xl font-medium text-sm hover:bg-slate-50 transition-colors"
++              >
++                Go back
++              </button>
++              <button
++                onClick={() => {
++                  setShowOverrideModal(false);
++                  setShowSendModal(true);
++                }}
++                className="flex-1 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-bold text-sm transition-colors"
++              >
++                Send anyway
++              </button>
++            </div>
++          </div>
++        </div>
++      )}
+     </AppShell>
+   );
+ }
+diff --git a/packages/web/app/vault/page.tsx b/packages/web/app/vault/page.tsx
+index 409053f..78497b1 100644
+--- a/packages/web/app/vault/page.tsx
++++ b/packages/web/app/vault/page.tsx
+@@ -20,6 +20,14 @@ const statusLabels: Record<string, string> = {
+   signed: 'Signed',
+ };
+ 
++const CONTRACT_TYPE_LABELS: Record<string, string> = {
++  'msa': 'Master Services Agreement',
++  'msa-sow': 'MSA + SOW',
++  'sow-standalone': 'Standalone SOW',
++  'change-order': 'Change Order',
++  'nda': 'Non-Disclosure Agreement',
++};
++
+ export default function VaultPage() {
+   const [contracts, setContracts] = useState<Contract[]>([]);
+   const [loading, setLoading] = useState(true);
+@@ -80,7 +88,7 @@ export default function VaultPage() {
+                   <tr key={c.id} className={`${i > 0 ? 'border-t border-slate-100' : ''} hover:bg-slate-50 transition-colors`}>
+                     <td className="px-4 py-3">
+                       <p className="font-medium text-slate-900">{c.title}</p>
+-                      <p className="text-xs text-slate-400 capitalize">{c.contractType?.replace(/-/g, ' ')}</p>
++                      <p className="text-xs text-slate-400">{CONTRACT_TYPE_LABELS[c.contractType] ?? c.contractType?.replace(/-/g, ' ')}</p>
+                     </td>
+                     <td className="px-4 py-3">
+                       <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${statusColors[c.status] ?? 'bg-slate-100 text-slate-600'}`}>
+diff --git a/packages/web/components/ContractDoc.tsx b/packages/web/components/ContractDoc.tsx
+index 8d596b3..012d36e 100644
+--- a/packages/web/components/ContractDoc.tsx
++++ b/packages/web/components/ContractDoc.tsx
+@@ -1,6 +1,6 @@
+ 'use client';
+ 
+-import { useEffect, useRef, useState } from 'react';
++import { useEffect, useRef, useState, useMemo } from 'react';
+ 
+ interface ContractDocProps {
+   html: string;
+@@ -53,18 +53,15 @@ export default function ContractDoc({
+     });
+   }, [highlightField, html]);
+ 
+-  // Sync external html prop into contentEditable (only when not focused)
+-  useEffect(() => {
+-    if (!ref.current) return;
+-    if (document.activeElement !== ref.current) {
+-      // Highlight any unsubstituted {{variable}} tokens with amber badges
+-      const processed = html.replace(
+-        /\{\{(\w+)\}\}/g,
+-        '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: $1">⚠ $1</span>'
+-      );
+-      ref.current.innerHTML = processed;
+-    }
+-  }, [html]);
++  // Process unsubstituted {{variable}} tokens into amber badges via useMemo
++  // so dangerouslySetInnerHTML always receives the processed string.
++  const processedHtml = useMemo(() =>
++    html.replace(
++      /\{\{(\w+)\}\}/g,
++      '<span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.85em;font-weight:500" title="Missing field: ">⚠ </span>'
++    ),
++    [html]
++  );
+ 
+   const handleShare = () => {
+     if (shareEmail.trim()) {
+@@ -297,7 +294,7 @@ export default function ContractDoc({
+           style={{
+             boxShadow: '0 1px 3px rgba(0,0,0,.2), 0 0 0 1px rgba(0,0,0,.04)',
+           }}
+-          dangerouslySetInnerHTML={{ __html: html }}
++          dangerouslySetInnerHTML={{ __html: processedHtml }}
+         />
+       </div>
+ 

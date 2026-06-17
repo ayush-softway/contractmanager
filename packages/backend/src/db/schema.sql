@@ -76,3 +76,7 @@ INSERT OR IGNORE INTO clauses (id, name, type, body, updated_by, updated_at) VAL
   ('clause-payment', 'Payment Terms', 'flexible', 'Client shall pay all undisputed invoices within thirty (30) days of receipt. Late payments shall accrue interest at 1.5% per month.', 'Melissa Grant', '2026-04-20T00:00:00.000Z'),
   ('clause-confidentiality', 'Confidentiality', 'non-negotiable', 'Each party agrees to maintain in strict confidence all Confidential Information of the other party and not to disclose such information to any third party without prior written consent.', 'Chris Pitre', '2026-04-18T00:00:00.000Z'),
   ('clause-travel', 'Travel & Expenses', 'optional', 'Client shall reimburse Softway for all pre-approved travel and out-of-pocket expenses incurred in connection with the Services, not to exceed the travel cap set forth in the applicable SOW.', 'Alex Rivera', '2026-04-15T00:00:00.000Z');
+
+-- Seed demo user so /auth/me works in demo mode
+INSERT OR IGNORE INTO users (id, google_id, email, display_name, avatar_url, created_at)
+VALUES ('demo-user', 'demo-google-id', 'demo@softwaysolutions.com', 'Shivansh', NULL, datetime('now'));
